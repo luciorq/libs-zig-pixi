@@ -1,0 +1,13 @@
+# pixi environments
+.pixi/
+# zig build caches and outputs
+.zig-cache/
+.zig-global-cache/
+.zig-local-cache/
+zig-out/
+# rattler-build output: the default LIBS_ZIG_OUT (pixi.toml) and the upstream-zig leg
+output/
+output-upstream/
+out/
+dist/
+*.conda

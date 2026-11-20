@@ -1,0 +1,72 @@
+[workspace]
+name = "libs-zig-pixi"
+description = "Static C/C++ libraries cross-built with zig as conda packages (zig-* on universe)"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+# The build host env. rattler-build makes its own build/host envs from
+# conda channels; this env only runs rattler-build and the smoke links.
+[dependencies]
+rattler-build = "*"
+zig = "==0.17.1"
+cmake = "*"
+ninja = "*"
+pkgconf = "*"
+perl = "*"
+sqlite = "*"
+
+# LIBS_ZIG_OUT: rattler-build's output dir and local channel (file://).
+# The default is the gitignored output/ in the workspace; a machine with a
+# bigger scratch disk sets LIBS_ZIG_OUT (and RATTLER_CACHE_DIR,
+# ZIG_GLOBAL_CACHE_DIR) in its own shell profile, never here. The
+# `${VAR:-default}` form keeps a value set by the caller.
+# ZIG_BIN is cleared: the default env is the published leg and always runs
+# the build env's conda-forge zig (D11), even when the caller's shell
+# exports ZIG_BIN (r-zig-pixi's docs do). The upstream-zig env sets it.
+[activation.env]
+LIBS_ZIG_OUT = "${LIBS_ZIG_OUT:-$PIXI_PROJECT_ROOT/output}"
+ZIG_BIN = ""
+
+[tasks.build-toolchain]
+description = "Build zig-toolchain for linux-64 into $LIBS_ZIG_OUT"
+cmd = "rattler-build build --recipe recipes/zig-toolchain -m variants.yaml --output-dir $LIBS_ZIG_OUT -c conda-forge --no-build-id"
+
+[tasks.build]
+description = "Build recipes/<recipe> for <subdir> (win-64 | win-arm64) against the local channel"
+args = ["recipe", { arg = "subdir", default = "win-64" }]
+cmd = "rattler-build build --recipe recipes/{{ recipe }} --target-platform {{ subdir }} -m variants.yaml --output-dir $LIBS_ZIG_OUT -c file://$LIBS_ZIG_OUT -c conda-forge --no-build-id"
+
+[tasks.test]
+description = "Re-run a built package's tests (the parts that run on linux)"
+args = ["package_file"]
+cmd = "rattler-build test --package-file {{ package_file }} -c file://$LIBS_ZIG_OUT -c conda-forge"
+
+[tasks.smoke]
+description = "Cross-link tests/smoke/<lib>.c against a built package with the zig-toolchain wrappers"
+args = ["lib", { arg = "subdir", default = "win-64" }]
+cmd = "bash tests/smoke/link.sh {{ lib }} {{ subdir }}"
+
+[tasks.toolchain-test]
+description = "zig build test of the zig-toolchain sources"
+cwd = "toolchain"
+cmd = "zig build test"
+
+# Both zigs (D11): the same tools, plus upstream zig from PyPI. ZIG_BIN
+# points at it; the zig-toolchain wrappers run $ZIG_BIN when it is set, and
+# the recipes pass it into rattler-build's build script (build.script.env).
+[feature.upstream-zig.dependencies]
+python = "3.13.*"
+
+[feature.upstream-zig.pypi-dependencies]
+ziglang = "==0.17.1"
+
+# Its own output dir: its packages have the same file names and build
+# strings as the published leg's (ZIG_BIN is not a variant), so they must
+# never land in, or be uploaded from, LIBS_ZIG_OUT. Rebuild zig-toolchain
+# here too (pixi run -e upstream-zig build-toolchain) before the libraries.
+[feature.upstream-zig.activation.env]
+ZIG_BIN = "$CONDA_PREFIX/lib/python3.13/site-packages/ziglang/zig"
+LIBS_ZIG_OUT = "${LIBS_ZIG_OUT_UPSTREAM:-$PIXI_PROJECT_ROOT/output-upstream}"
+
+[environments]
+upstream-zig = ["upstream-zig"]

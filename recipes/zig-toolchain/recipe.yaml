@@ -1,0 +1,89 @@
+# zig-toolchain: the cross toolchain every zig-* recipe builds with. One
+# Zig multi-call binary (toolchain/) installed under the triple names
+# <triple>-{cc,c++,ar,ranlib,dlltool,windres,rc}, the CMake toolchain and
+# meson cross files, and the activation script that sets CC, CXX, ...,
+# CMAKE_ARGS for rattler-build's target_platform (win-64, win-arm64).
+# Built natively for linux-64 (later osx-*).
+context:
+  # variants.yaml zig_toolchain; toolchain/src/main.zig `version` must match
+  # (tested below)
+  version: ${{ zig_toolchain }}
+
+package:
+  name: zig-toolchain
+  version: ${{ version }}
+
+source:
+  - path: ../../toolchain
+  # the repo's MIT licence, for about.license_file
+  - path: ../../LICENSE
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg builds this binary with PyPI
+      # ziglang's zig too; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    - zig ==${{ zig }}
+  run:
+    # the zig that the wrappers run unless ZIG_BIN says otherwise (D4, D11)
+    - zig ==${{ zig }}
+
+tests:
+  - package_contents:
+      files:
+        - bin/zig-toolchain
+        - bin/x86_64-w64-mingw32-cc
+        - bin/aarch64-w64-mingw32-c++
+        - bin/x86_64-w64-mingw32-windres
+        - bin/x86_64-w64-mingw32-strip
+        - bin/aarch64-w64-mingw32-nm
+        - share/zig-toolchain/x86_64-w64-mingw32.cmake
+        - share/zig-toolchain/aarch64-w64-mingw32.cmake
+        - share/zig-toolchain/x86_64-w64-mingw32.ini
+        - share/zig-toolchain/aarch64-w64-mingw32.ini
+        - etc/conda/activate.d/zig-toolchain_activate.sh
+  - script:
+      # both triples compile and link a C and a C++ program into PE images
+      # of the right machine (checked by the PE header's machine field)
+      - export ZIG_GLOBAL_CACHE_DIR="$PWD/.zig-global-cache" ZIG_LOCAL_CACHE_DIR="$PWD/.zig-local-cache"
+      - printf '#include <stdio.h>\nint main(void){puts("hello");return 0;}\n' > hello.c
+      - printf '#include <iostream>\nint main(){std::cout<<"hello\\n";}\n' > hello.cpp
+      - printf '1 VERSIONINFO\nFILEVERSION 1,0,0,0\nBEGIN\nEND\n' > r.rc
+      - x86_64-w64-mingw32-cc -O2 hello.c -o hello-x86_64.exe
+      - aarch64-w64-mingw32-cc -O2 -march=armv8-a+crc+crypto hello.c -o hello-aarch64.exe
+      - x86_64-w64-mingw32-c++ -O2 hello.cpp -o hellopp-x86_64.exe
+      - aarch64-w64-mingw32-c++ -O2 hello.cpp -o hellopp-aarch64.exe
+      - x86_64-w64-mingw32-windres -O coff -i r.rc -o r-x86_64.o
+      - aarch64-w64-mingw32-windres -O coff -i r.rc -o r-aarch64.o
+      - aarch64-w64-mingw32-cc -c hello.c -o h.o && aarch64-w64-mingw32-ar rcs libh.a h.o && aarch64-w64-mingw32-ranlib libh.a
+      - zig-toolchain pe-machine hello-x86_64.exe hellopp-x86_64.exe r-x86_64.o | tee m64.txt
+      - zig-toolchain pe-machine hello-aarch64.exe hellopp-aarch64.exe r-aarch64.o | tee marm.txt
+      - test "$(grep -c 'x86_64$' m64.txt)" = 3
+      - test "$(grep -c 'aarch64$' marm.txt)" = 3
+      - ZIG_TOOLCHAIN_TRACE=1 x86_64-w64-mingw32-cc --version 2>&1 | grep -q 'zig-toolchain.  *using '
+      - test "$(zig-toolchain version 2>&1)" = "zig-toolchain ${{ version }}"
+      # -march=native is dropped (never the build machine's CPU)
+      - printf 'int x;\n' > m.c
+      - if x86_64-w64-mingw32-cc -march=native -E -dM m.c | grep '__AVX2__ 1'; then exit 1; fi
+      # with the activation's -g0 the object names no build path (the
+      # wrapper's constant CodeView S_OBJNAME; without -g0, LF_BUILDINFO
+      # still records the cwd and the cc1 command line)
+      - x86_64-w64-mingw32-cc -g0 -c hello.c -o hello.obj
+      - if grep -a -o -e "$PWD" -e zig-local-cache hello.obj; then exit 1; fi
+      # strip is a no-op, nm fails instead of running the host's ELF nm
+      - x86_64-w64-mingw32-strip hello-x86_64.exe
+      - if aarch64-w64-mingw32-nm h.o; then exit 1; fi
+
+about:
+  homepage: https://github.com/luciorq/libs-zig-pixi
+  license: MIT
+  license_file: LICENSE
+  summary: Cross toolchain (zig cc wrappers, CMake/meson files) for building Windows static libraries with zig

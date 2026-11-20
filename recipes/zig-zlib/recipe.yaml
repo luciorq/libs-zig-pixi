@@ -1,0 +1,84 @@
+# zig-zlib: zlib, static only, for Windows (win-64, win-arm64), cross-built
+# on linux with zig-toolchain. Installed under the private sub-prefix
+# Library/zig-libs/<zig triple>/ (D2): lib/libz.a, include/{zlib,zconf}.h,
+# lib/pkgconfig/zlib.pc (closed, relocatable), licenses/zlib/.
+context:
+  version: ${{ zlib_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-zlib
+  version: ${{ version }}
+
+source:
+  url:
+    - https://zlib.net/fossils/zlib-${{ version }}.tar.gz
+    - https://github.com/madler/zlib/releases/download/v${{ version }}/zlib-${{ version }}.tar.gz
+  sha256: 9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    - cmake
+    - ninja
+  run_exports:
+    weak:
+      - ${{ pin_subpackage("zig-zlib", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        - ${{ sub }}/lib/libz.a
+        - ${{ sub }}/include/zlib.h
+        - ${{ sub }}/include/zconf.h
+        - ${{ sub }}/lib/pkgconfig/zlib.pc
+        - ${{ sub }}/licenses/zlib/LICENSE
+  - script:
+      interpreter: bash
+      content:
+        # static only (D3): no DLL, no import library, no MSVC-named library
+        - |
+          bad=$(find "$PREFIX/Library" \( -name '*.dll' -o -name '*.dll.a' -o -name '*.lib' \) -print)
+          if [ -n "$bad" ]; then echo "not static-only: $bad"; exit 1; fi
+        # the .pc resolves to existing paths in the installed (relocated) prefix
+        - |
+          export PKG_CONFIG_LIBDIR="$PREFIX/${{ sub }}/lib/pkgconfig"
+          libs=$(pkgconf --libs zlib); cflags=$(pkgconf --cflags zlib)
+          echo "libs: $libs"; echo "cflags: $cflags"
+          case "$libs" in *-lz*) ;; *) echo "no -lz"; exit 1 ;; esac
+          for w in $libs $cflags; do
+            case "$w" in -L*|-I*) d=${w#-?}; test -d "$d" || { echo "missing dir $d"; exit 1; } ;; esac
+          done
+          # (`! cmd` would not stop a bash -e script; an explicit exit does)
+          if grep -n "$PREFIX" "$PKG_CONFIG_LIBDIR/zlib.pc"; then echo "absolute prefix in zlib.pc"; exit 1; fi
+        # no build path in the archive (the wrapper's constant S_OBJNAME)
+        - |
+          a="$PREFIX/${{ sub }}/lib/libz.a"
+          if grep -a -o -e 'rattler-build_[^ ]*' -e '/bld/[^ ]*' -e 'zig-[a-z]*-cache[^ ]*' "$a" | head -3 | grep .; then
+            echo "build paths in $a"; exit 1
+          fi
+    requirements:
+      build:
+        - pkgconf
+
+about:
+  homepage: https://zlib.net/
+  license: Zlib
+  license_file: LICENSE
+  summary: zlib, static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/madler/zlib

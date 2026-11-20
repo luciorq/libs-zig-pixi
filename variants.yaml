@@ -1,0 +1,38 @@
+# Global pins for every recipe (rattler-build -m variants.yaml).
+#
+# zig: exact. A zig bump rebuilds every package and bumps every build
+# number (D4); the published packages are built with conda-forge's zig
+# (D11), the upstream-zig leg points ZIG_BIN at PyPI ziglang of the same
+# version.
+zig:
+  - "0.17.1"
+
+# zig-toolchain: exact, and every recipe requires
+# `zig-toolchain ==${{ zig_toolchain }}`, so the key is in every build
+# string's hash. Any change to toolchain/ (wrapper flags, activation
+# script, CMake/meson files) bumps this version (and toolchain/src/main.zig
+# `version`), which rebuilds every package; an unchanged hash would let
+# --skip-existing keep packages built by the old toolchain.
+zig_toolchain:
+  - "0.1.0"
+
+# Upstream versions: Rtools45 build 6768 (D9). A recipe reads its own key
+# (zlib_version, ...) in its context; only zlib is built in M0.
+zlib_version:
+  - "1.3.1"
+sqlite_version:
+  - "3.51.2"
+expat_version:
+  - "2.7.3"
+geos_version:
+  - "3.14.1"
+proj_version:
+  - "9.7.1"
+gdal_version:
+  - "3.12.1"
+abseil_version:
+  - "20250127.0"
+onetbb_version:
+  - "2022.2.0"
+openssl_version:
+  - "3.6.0"

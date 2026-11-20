@@ -1,0 +1,8 @@
+.{
+    .name = .zig_toolchain,
+    .version = "0.1.0",
+    .fingerprint = 0xdab868f375446f98,
+    .minimum_zig_version = "0.17.1",
+    .dependencies = .{},
+    .paths = .{ "build.zig", "build.zig.zon", "src", "share" },
+}
