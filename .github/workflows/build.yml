@@ -1,0 +1,275 @@
+name: build
+
+# Milestone M0's CI (DESIGN.md 9.1, .github/devdocs/m0/PLAN.md):
+#
+#   plan        the legs: default, plus upstream-zig when gated
+#   toolchain   zig-toolchain for linux-64 into a local channel, per leg
+#   cross       every library recipe for win-64 and win-arm64 on linux
+#               (pixi run build-libs; its recipe tests run there too)
+#   test        each package's tests on windows-latest (win-64) and
+#               windows-11-arm (win-arm64): rattler-build test
+#               --package-file, which links and runs the smoke executable
+#               natively with that subdir's conda-forge zig
+#   alignment   one build number per package across subdirs
+#
+# Each leg runs once per pixi environment: `default` (conda-forge zig, what
+# would be published) always; `upstream-zig` (PyPI ziglang through ZIG_BIN,
+# the reference zig, D11) only as the gated release check: a pull request
+# labelled `upstream-zig` or `full-ci`, or a dispatch with upstream_zig.
+# Its packages carry the same file names, so they live in their own output
+# dir and artifacts (channel-<subdir>-upstream-zig) and are never published.
+# No publish job: publishing is M5 (PLAN.md D30). pixi.toml holds every
+# build command; this file calls `pixi run --locked <task>`, so CI never
+# writes pixi.lock. The Windows legs have no locked env (DESIGN 3): they
+# run rattler-build through `pixi exec`.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - ".github/devdocs/**"
+      - "LICENSE"
+  pull_request:
+    # labeled: adding `upstream-zig` or `full-ci` starts the gated legs at
+    # once; any other label starts nothing (the plan job's condition)
+    types: [opened, synchronize, reopened, labeled]
+    paths-ignore:
+      - "**/*.md"
+      - ".github/devdocs/**"
+      - "LICENSE"
+  workflow_dispatch:
+    inputs:
+      upstream_zig:
+        description: Also build and test with upstream zig (PyPI ziglang via ZIG_BIN)
+        type: boolean
+        default: false
+
+# One run per ref; a newer push to a pull request cancels the older run.
+# Runs on main are not cancelled. A `labeled` event for another label gets
+# a group of its own, so it cannot cancel a running build.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}${{ (github.event.action == 'labeled' && github.event.label.name != 'upstream-zig' && github.event.label.name != 'full-ci') && format('-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # rattler-build's output dir and local channel per env (pixi.toml reads
+  # these; the default env's LIBS_ZIG_OUT, the upstream-zig env's
+  # LIBS_ZIG_OUT_UPSTREAM)
+  LIBS_ZIG_OUT: ${{ github.workspace }}/out/default
+  LIBS_ZIG_OUT_UPSTREAM: ${{ github.workspace }}/out/upstream-zig
+  # the rattler-build pixi.lock has (bump both together); the Windows legs
+  # run it with pixi exec
+  RATTLER_BUILD_VERSION: "0.80.2"
+
+jobs:
+  plan:
+    name: plan (legs)
+    if: >-
+      github.event.action != 'labeled' ||
+      github.event.label.name == 'upstream-zig' || github.event.label.name == 'full-ci'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      envs: ${{ steps.legs.outputs.envs }}
+    steps:
+      - name: Legs (default; upstream-zig when gated)
+        id: legs
+        env:
+          UPSTREAM: >-
+            ${{ (github.event_name == 'workflow_dispatch' && inputs.upstream_zig) ||
+            (github.event_name == 'pull_request' &&
+            (contains(github.event.pull_request.labels.*.name, 'upstream-zig') ||
+            contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
+        run: |
+          if [ "$UPSTREAM" = true ]; then
+            echo 'envs=["default","upstream-zig"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'envs=["default"]' >> "$GITHUB_OUTPUT"
+          fi
+
+  # One leg per env, so a failed upstream-zig build never hides the default
+  # results and the other way round (D34 amendment, PLAN.md). The later
+  # jobs gate on plan only; a leg whose toolchain failed fails at its own
+  # artifact download.
+  toolchain:
+    name: toolchain linux-64 (${{ matrix.env }})
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        env: ${{ fromJSON(needs.plan.outputs.envs) }}
+    env:
+      PIXI_ENV: ${{ matrix.env }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          # the pixi that wrote pixi.lock (bump both together)
+          pixi-version: v0.84.2
+          environments: ${{ matrix.env }}
+          cache: true
+          cache-write: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
+      - name: Build zig-toolchain
+        run: pixi run --locked -e "$PIXI_ENV" build-toolchain 2>&1 | tee build.log
+      - uses: ./.github/actions/which-zig
+        with:
+          log: build.log
+          env: ${{ matrix.env }}
+      - name: Drop work trees before upload
+        if: always()
+        run: rm -rf "out/$PIXI_ENV/bld" "out/$PIXI_ENV/src_cache" "out/$PIXI_ENV/test"
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: channel-linux-64-${{ matrix.env }}
+          path: |
+            out/${{ matrix.env }}/linux-64
+            out/${{ matrix.env }}/noarch
+          if-no-files-found: error
+          retention-days: 14
+
+  cross:
+    name: cross ${{ matrix.subdir }} (${{ matrix.env }})
+    needs: [plan, toolchain]
+    # a matrix job's result is the worst of its legs, so gate on plan, not
+    # toolchain: a failed toolchain leg fails only its own env's legs (at
+    # the artifact download)
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        subdir: [win-64, win-arm64]
+        env: ${{ fromJSON(needs.plan.outputs.envs) }}
+    env:
+      SUBDIR: ${{ matrix.subdir }}
+      PIXI_ENV: ${{ matrix.env }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          pixi-version: v0.84.2
+          environments: ${{ matrix.env }}
+          cache: true
+          cache-write: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
+      # the toolchain job's channel (linux-64 zig-toolchain built by the
+      # same env's zig), as the start of this job's channel
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: channel-linux-64-${{ matrix.env }}
+          path: out/${{ matrix.env }}
+      # every library recipe, in dependency order (pixi.toml build-libs);
+      # rattler-build runs each recipe's tests after its build
+      - name: Build the libraries
+        run: pixi run --locked -e "$PIXI_ENV" build-libs "$SUBDIR" 2>&1 | tee build.log
+      - uses: ./.github/actions/which-zig
+        with:
+          log: build.log
+          env: ${{ matrix.env }}
+      - name: Drop work trees before upload
+        if: always()
+        run: rm -rf "out/$PIXI_ENV/bld" "out/$PIXI_ENV/src_cache" "out/$PIXI_ENV/test"
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: channel-${{ matrix.subdir }}-${{ matrix.env }}
+          path: |
+            out/${{ matrix.env }}/${{ matrix.subdir }}
+            out/${{ matrix.env }}/noarch
+          if-no-files-found: error
+          retention-days: 14
+
+  test:
+    name: test ${{ matrix.subdir }} (${{ matrix.env }})
+    needs: [plan, cross]
+    # !cancelled() and plan only: one failed toolchain or cross leg fails
+    # only its own test leg (at the artifact download), not all of them
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        subdir: [win-64, win-arm64]
+        env: ${{ fromJSON(needs.plan.outputs.envs) }}
+        include:
+          - subdir: win-64
+            runner: windows-latest
+          - subdir: win-arm64
+            runner: windows-11-arm
+    env:
+      SUBDIR: ${{ matrix.subdir }}
+    steps:
+      - name: Defender exclusions
+        shell: pwsh
+        continue-on-error: true
+        # flang-pixi's: real-time scanning of every object file slows zig
+        # and rattler-build down; runners are admin, harmless if it fails
+        run: |
+          Add-MpPreference -ExclusionPath "$env:GITHUB_WORKSPACE","$env:RUNNER_TEMP","$env:TEMP","$env:USERPROFILE\.pixi","$env:USERPROFILE\.cache","$env:LOCALAPPDATA\rattler","$env:LOCALAPPDATA\zig"
+          Add-MpPreference -ExclusionProcess "zig.exe","pkgconf.exe","rattler-build.exe","pixi.exe"
+      # (the tests come inside the packages; the checkout is for setup-pixi)
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          pixi-version: v0.84.2
+          run-install: false
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: channel-${{ matrix.subdir }}-${{ matrix.env }}
+          path: channel
+      # Each package's stored tests (recipes/*/recipe.yaml `tests:`): for a
+      # library, tests/pkgtest.zig, run with this subdir's conda-forge zig
+      # and pkgconf, which links tests/smoke/<lib>.c with `pkgconf --libs`
+      # of the installed package and runs it. The step timeout catches a
+      # hung process spawn (r-zig-pixi's windows-latest MSYS flake).
+      - name: rattler-build test each package
+        timeout-minutes: 20
+        run: |
+          chan="file:///$(cygpath -m "$PWD")/channel"
+          for f in channel/"$SUBDIR"/*.conda; do
+            echo "::group::rattler-build test $f"
+            pixi exec --spec "rattler-build==$RATTLER_BUILD_VERSION" -- \
+              rattler-build test --package-file "$f" -c "$chan" -c conda-forge
+            echo "::endgroup::"
+          done
+
+  alignment:
+    name: build-number alignment
+    needs: [plan, cross]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          pixi-version: v0.84.2
+          environments: default
+          cache: true
+          cache-write: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
+      # the default env's channels only: the upstream-zig leg builds the
+      # same recipes and is never published. A missing artifact (a failed
+      # cross leg) shows as a missing subdir (--expect in pixi.toml).
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          pattern: channel-*-default
+          path: channels
+      - name: zig-toolchain check-alignment
+        run: pixi run --locked check-alignment "$(echo channels/channel-*-default)"

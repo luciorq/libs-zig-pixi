@@ -12,10 +12,14 @@ package:
   version: ${{ version }}
 
 source:
-  url:
-    - https://zlib.net/fossils/zlib-${{ version }}.tar.gz
-    - https://github.com/madler/zlib/releases/download/v${{ version }}/zlib-${{ version }}.tar.gz
-  sha256: 9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23
+  - url:
+      - https://zlib.net/fossils/zlib-${{ version }}.tar.gz
+      - https://github.com/madler/zlib/releases/download/v${{ version }}/zlib-${{ version }}.tar.gz
+    sha256: 9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23
+  # the package test (tests/pkgtest.zig, tests/smoke/zlib.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
 
 build:
   number: 0
@@ -43,37 +47,31 @@ requirements:
 tests:
   - package_contents:
       files:
-        - ${{ sub }}/lib/libz.a
-        - ${{ sub }}/include/zlib.h
-        - ${{ sub }}/include/zconf.h
-        - ${{ sub }}/lib/pkgconfig/zlib.pc
-        - ${{ sub }}/licenses/zlib/LICENSE
-  - script:
-      interpreter: bash
-      content:
+        exists:
+          - ${{ sub }}/lib/libz.a
+          - ${{ sub }}/include/zlib.h
+          - ${{ sub }}/include/zconf.h
+          - ${{ sub }}/lib/pkgconfig/zlib.pc
+          - ${{ sub }}/licenses/zlib/LICENSE
         # static only (D3): no DLL, no import library, no MSVC-named library
-        - |
-          bad=$(find "$PREFIX/Library" \( -name '*.dll' -o -name '*.dll.a' -o -name '*.lib' \) -print)
-          if [ -n "$bad" ]; then echo "not static-only: $bad"; exit 1; fi
-        # the .pc resolves to existing paths in the installed (relocated) prefix
-        - |
-          export PKG_CONFIG_LIBDIR="$PREFIX/${{ sub }}/lib/pkgconfig"
-          libs=$(pkgconf --libs zlib); cflags=$(pkgconf --cflags zlib)
-          echo "libs: $libs"; echo "cflags: $cflags"
-          case "$libs" in *-lz*) ;; *) echo "no -lz"; exit 1 ;; esac
-          for w in $libs $cflags; do
-            case "$w" in -L*|-I*) d=${w#-?}; test -d "$d" || { echo "missing dir $d"; exit 1; } ;; esac
-          done
-          # (`! cmd` would not stop a bash -e script; an explicit exit does)
-          if grep -n "$PREFIX" "$PKG_CONFIG_LIBDIR/zlib.pc"; then echo "absolute prefix in zlib.pc"; exit 1; fi
-        # no build path in the archive (the wrapper's constant S_OBJNAME)
-        - |
-          a="$PREFIX/${{ sub }}/lib/libz.a"
-          if grep -a -o -e 'rattler-build_[^ ]*' -e '/bld/[^ ]*' -e 'zig-[a-z]*-cache[^ ]*' "$a" | head -3 | grep .; then
-            echo "build paths in $a"; exit 1
-          fi
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+  # tests/pkgtest.zig (its header says what it checks): the relocated .pc
+  # resolves to existing paths, no absolute prefix in it, no build path in
+  # libz.a, and tests/smoke/zlib.c links (and runs, on Windows of the same
+  # arch). One plain command, so bash (linux) and cmd.exe (Windows) run it
+  # alike; the package_contents test above runs only at build time.
+  - script:
+      - zig run --global-cache-dir .zig-global-cache --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- ${{ zt }} zlib zig-libs-tests/smoke/zlib.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/zlib.c
     requirements:
       build:
+        - zig ==${{ zig }}
         - pkgconf
 
 about:
