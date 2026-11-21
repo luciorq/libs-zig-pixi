@@ -6,7 +6,7 @@ set -euo pipefail
 # both zigs (D11): $ZIG_BIN when the upstream-zig leg sets it; either way
 # the zig the wrappers run must be the variant's version
 zig_bin="${ZIG_BIN:-}"; v=$("${zig_bin:-zig}" version)
-echo "zig-zlib: ZIG_BIN='${zig_bin}' zig version: $v"
+echo "zig-zlib: ZIG_BIN='${zig_bin}' zig version: $v ($(command -v "${zig_bin:-zig}"))"
 [ "$v" = "${ZIG_VERSION}" ] || { echo "zig-zlib: zig is $v, variants.yaml says ${ZIG_VERSION}" >&2; exit 1; }
 
 cmake -S . -B _build ${CMAKE_ARGS} \

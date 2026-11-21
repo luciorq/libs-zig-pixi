@@ -69,10 +69,11 @@ libs-zig-pixi/
     build.zig build.zig.zon src/*.zig
     cmake/zig-cross.cmake.in  meson/cross.ini.in
   zigbuild/                # build.zig ports, only where a build system cannot cross (empty in slice 1)
+  tests/pkgtest.zig        # the package test every library recipe runs (linux and Windows, m0 D31)
   tests/smoke/             # C/C++ smoke sources per library
   tests/r/                 # sf/terra/gdalraster/s2 smoke scripts
   .github/
-    actions/stage/action.yml    # adapted from flang-pixi (local channel, repodata.json, artifact handoff)
+    actions/which-zig/action.yml  # which zig each build ran (m0 D41); the build steps are pixi tasks, so no stage action (m0 D35)
     workflows/build.yml
     devdocs/DESIGN.md  devdocs/CONVENTIONS.md  devdocs/<branch>/PLAN.md
   README.md  LICENSE      # MIT (D19)
@@ -353,12 +354,12 @@ Static archives are linked into every sf, terra, gdalraster and s2 DLL, so an up
 ### 9.1 CI (`.github/workflows/build.yml`)
 CI tiers as r-zig-pixi: a core set on every push; the full matrix and the upstream-zig leg via the `full-ci` label or dispatch.
 
-1. **toolchain** (ubuntu-latest): build `zig-toolchain` into a local channel with `.github/actions/stage` from flang-pixi (empty `repodata.json`, `-c file://$OUT -c conda-forge`, delete `bld/` and `src_cache`) [infra §3].
-2. **build (win-64), build (win-arm64)** (ubuntu-latest): the chain in order (zlib → sqlite → expat → geos → proj → gdal; abseil, onetbb, openssl), `--test skip --no-build-id` after `rm -rf dist`; upload `channel-<subdir>`. Time: A.
-3. **test** on `windows-latest` and `windows-11-arm`: Defender exclusions, short timeouts (MSYS spawn flake) [infra §5]; native conda-forge zig; `rattler-build test --package-file` per package.
+1. **toolchain** (ubuntu-latest): `pixi run build-toolchain` into a local channel (`-c file://$LIBS_ZIG_OUT -c conda-forge`), `bld/`, `src_cache/`, `test/` deleted before the upload, as flang-pixi's stage action [infra §3]. As built in M0: m0 PLAN D33-D35; a `plan` job writes the env list (`default`, plus the gated `upstream-zig`) and toolchain runs once per env with `fail-fast: false`, so a failing leg does not skip the other leg's jobs (m0 D43, from the M0 review).
+2. **cross (win-64), cross (win-arm64)** (ubuntu-latest): the chain in order (zlib → sqlite → expat → geos → proj → gdal; abseil, onetbb, openssl) as `pixi run build-libs <subdir>` (one `depends-on` line per recipe in pixi.toml), with each recipe's tests run on linux after its build; upload `channel-<subdir>-<env>`. Time: A.
+3. **test** on `windows-latest` and `windows-11-arm`: Defender exclusions, short timeouts (MSYS spawn flake) [infra §5]; native conda-forge zig; `rattler-build test --package-file` per package through `pixi exec`, whose stored test is `tests/pkgtest.zig` (m0 D31).
 4. **r-consumer** (win-64, win-arm64) × (conda-zig | upstream-zig, gated): `pixi exec` with `r-zig-slim` from universe plus the artifact channel; install sf, terra, gdalraster, s2 from source; run `tests/r/smoke.R`. No lock writes in CI.
-5. **publish** (ubuntu-latest): push/dispatch on main **and** `vars.CONDA_PUBLISH == 'true'`; `permissions: id-token: write`; `rattler-build -v upload prefix --channel universe --skip-existing dist/<subdir>/*.conda`; then flang-pixi's GraphQL verify (`build.yml:298-319`) [infra §3, §4]. **User action:** register `luciorq/libs-zig-pixi` / `build.yml` as a Trusted Publisher on universe (Base/Overrides empty). Before any local publish the preflight (CONVENTIONS.md) is required.
-6. **alignment** (ubuntu-latest): `zig-toolchain check-alignment` over the built packages.
+5. **publish** (ubuntu-latest; not in the workflow until M5, m0 D30): push/dispatch on main **and** `vars.CONDA_PUBLISH == 'true'`; `permissions: id-token: write`; `rattler-build -v upload prefix --channel universe --skip-existing dist/<subdir>/*.conda`; then flang-pixi's GraphQL verify (`build.yml:298-319`) [infra §3, §4]. **User action:** register `luciorq/libs-zig-pixi` / `build.yml` as a Trusted Publisher on universe (Base/Overrides empty). Before any local publish the preflight (CONVENTIONS.md) is required.
+6. **alignment** (ubuntu-latest): `zig-toolchain check-alignment` over the built packages. As built in M0: the locally built default-leg channels only (each subdir's `repodata.json`, `--expect win-64,win-arm64`, m0 D36, D44); the comparison with the published universe channel comes before M5 (m0 M0-F22, D45).
 
 The repo is public: free `windows-11-arm` runners need a public repo (D15, I).
 
@@ -425,7 +426,7 @@ All accepted 2026-11-20. "user" = accepted by the user's "Yes, continue with rec
 | R12 | `R_TOOLS_SOFT` unset → `cp "/share/gdal"` fails | inferred | M4 plain `R CMD INSTALL` without stress.R's override |
 | R13 | netCDF/Parquet/network tests fail instead of skipping | assumption | M4 runs package tests once, non-gating; failures listed against 6.3's missing-features list; feed slice 2 |
 | R14 | Hosted-runner hazards (MSYS spawn hang, Defender, arm queue) | verified elsewhere [infra §5] | timeouts, exclusions, re-runs; job times in PLAN.md |
-| R15 | `--skip-existing` keeps stale builds | verified pitfall | `check-alignment`; every change bumps; publish logs (`-v`) checked for "skipped" |
+| R15 | `--skip-existing` keeps stale builds | verified pitfall | `check-alignment` (M0: local channels only; the comparison with universe comes before M5, m0/PLAN.md D45); every change bumps; publish logs (`-v`) checked for "skipped" |
 | R16 | `zig-*` name collisions on universe | unknown | query universe repodata for every name before M5 |
 | R17 | A library-specific cross blocker | inferred low | per recipe: native Windows build or a build.zig port, recorded |
 | R18 | Licence compliance of archives inside R package DLLs | inferred | `licenses/<pkg>/` present; M3 inventory (5.8); GEOS LGPL noted for Phase 3 binaries |

@@ -37,6 +37,7 @@ No agent-instruction file (such as `AGENTS.md`) anywhere in the repo. Rules go h
 
 - Published packages are built with conda-forge `zig ==0.17.1`. Upstream zig (PyPI `ziglang`, byte-identical to ziglang.org) is the reference.
 - The gated CI leg (`full-ci` label or dispatch) rebuilds the packages with upstream zig through `ZIG_BIN` and checks that R packages link against them. Those artifacts are never uploaded.
+- Every `build.sh` checks `"${ZIG_BIN:-zig}" version` against the variant's zig and prints one line `<pkg>: ZIG_BIN='<value>' zig version: <v> (<path>)`; CI lists those lines and fails unless each names the env's zig (`.github/actions/which-zig`, m0 D25, D41). In build.yml the gated leg also runs on the `upstream-zig` label.
 - A failure under upstream zig is fixed in the design. A conda-forge quirk gets only a small, isolated, removable workaround inside `zig-toolchain`, never a design change.
 
 ## Versions and build numbers

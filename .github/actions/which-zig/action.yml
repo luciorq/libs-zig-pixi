@@ -1,0 +1,35 @@
+name: which zig
+description: >
+  List the zig each build.sh ran (its line "<pkg>: ZIG_BIN='...' zig
+  version: ... (<path>)") from a build log into the log and the step
+  summary, and fail unless every build ran the env's zig: the build env's
+  conda-forge zig (ZIG_BIN empty) for default, PyPI ziglang's for
+  upstream-zig (decisions D11, D25).
+
+inputs:
+  log:
+    description: The build log (the build step's output, tee'd)
+    required: true
+  env:
+    description: The pixi environment that built (default | upstream-zig)
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        LOG: ${{ inputs.log }}
+        PIXI_ENV: ${{ inputs.env }}
+      run: |
+        lines=$(grep -o "zig-[a-z0-9_-]*: ZIG_BIN='[^']*' zig version: [0-9.]* ([^)]*)" "$LOG" | sort -u || true)
+        { echo "#### zig of the $PIXI_ENV builds"; echo '```'; printf '%s\n' "$lines"; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+        case "$PIXI_ENV" in
+          upstream-zig) want="ZIG_BIN='[^']*/ziglang/zig' " ;;
+          *) want="ZIG_BIN='' " ;;
+        esac
+        if [ -z "$lines" ]; then echo "::error::no ZIG_BIN line in $LOG"; exit 1; fi
+        if printf '%s\n' "$lines" | grep -v "$want"; then
+          echo "::error::a build in $LOG did not run the $PIXI_ENV env's zig"
+          exit 1
+        fi

@@ -36,8 +36,13 @@ Every package installs into a private sub-prefix that no conda-forge package tou
 Requires [pixi](https://pixi.sh) on linux-64. Windows packages are cross-built on linux.
 
 ```sh
+pixi run build-toolchain          # zig-toolchain (linux-64), needed by every recipe
 pixi run build <pkg> <subdir>     # for example: pixi run build zig-zlib win-64
+pixi run build-libs <subdir>      # every library recipe, in dependency order (as CI)
+pixi run check-alignment          # one build number per package across subdirs
 ```
+
+CI (`.github/workflows/build.yml`) runs the same tasks on linux and tests every package on `windows-latest` and `windows-11-arm`.
 
 The exact task names and arguments are defined in `pixi.toml`. `zig-toolchain` is built first, into the local output channel, and every other recipe uses it. Set `RATTLER_CACHE_DIR` and `ZIG_GLOBAL_CACHE_DIR` to a disk with room; a GDAL build is large.
 

@@ -12,7 +12,10 @@ zig:
 # string's hash. Any change to toolchain/ (wrapper flags, activation
 # script, CMake/meson files) bumps this version (and toolchain/src/main.zig
 # `version`), which rebuilds every package; an unchanged hash would let
-# --skip-existing keep packages built by the old toolchain.
+# --skip-existing keep packages built by the old toolchain. The rule holds
+# from the first publish (M5) on; before that, a toolchain/ change that
+# leaves the wrapper flags, activation script and CMake/meson files as they
+# were keeps the version (PLAN.md D37).
 zig_toolchain:
   - "0.1.0"
 

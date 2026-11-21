@@ -36,6 +36,29 @@ description = "Build recipes/<recipe> for <subdir> (win-64 | win-arm64) against 
 args = ["recipe", { arg = "subdir", default = "win-64" }]
 cmd = "rattler-build build --recipe recipes/{{ recipe }} --target-platform {{ subdir }} -m variants.yaml --output-dir $LIBS_ZIG_OUT -c file://$LIBS_ZIG_OUT -c conda-forge --no-build-id"
 
+# Every library recipe for one subdir, in dependency order: pixi runs
+# depends-on in the order listed. A new recipe is one line here (M1:
+# zig-sqlite, zig-expat, zig-openssl). CI runs this (build.yml), so the list
+# lives only here.
+[tasks.build-libs]
+description = "Build every library recipe for <subdir> (win-64 | win-arm64), in dependency order"
+args = [{ arg = "subdir", default = "win-64" }]
+depends-on = [
+  { task = "build", args = ["zig-zlib", "{{ subdir }}"] },
+]
+
+# One build number per package across subdirs (D17, CONVENTIONS.md). The
+# subdirs every library must be in are listed here; zig-toolchain
+# (linux-64 only) is checked by the build-number rule alone. <dirs>: channel
+# roots or subdir dirs, space-separated (CI passes one per artifact).
+# The binary is installed into toolchain/zig-out (gitignored) and run
+# directly, so its exit codes (0 aligned, 1 problem, 2 usage) and a log
+# without build-runner lines reach the caller (D42).
+[tasks.check-alignment]
+description = "zig-toolchain check-alignment over <dirs> (default $LIBS_ZIG_OUT)"
+args = [{ arg = "dirs", default = "$LIBS_ZIG_OUT" }]
+cmd = "zig build --build-file toolchain/build.zig --prefix toolchain/zig-out && toolchain/zig-out/bin/zig-toolchain check-alignment --expect win-64,win-arm64 {{ dirs }}"
+
 [tasks.test]
 description = "Re-run a built package's tests (the parts that run on linux)"
 args = ["package_file"]

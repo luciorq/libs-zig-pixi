@@ -13,7 +13,8 @@ esac
 zig="${ZIG_BIN:-zig}"
 v=$("$zig" version)
 [ "$v" = "${ZIG_VERSION}" ] || { echo "zig-toolchain: $zig is $v, variants.yaml says ${ZIG_VERSION}" >&2; exit 1; }
-echo "zig-toolchain: zig $zig $v"
+# the same line as every library build.sh: CI lists which zig ran (build.yml)
+echo "zig-toolchain: ZIG_BIN='${ZIG_BIN:-}' zig version: $v ($(command -v "$zig"))"
 "$zig" build test
 "$zig" build -Doptimize=safe -Dtarget="${zt}" -Dcpu=baseline --prefix "${PREFIX}"
 for t in x86_64-w64-mingw32 aarch64-w64-mingw32; do

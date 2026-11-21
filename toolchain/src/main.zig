@@ -23,6 +23,9 @@
 //!
 //! Called as zig-toolchain:
 //!   zig-toolchain close-pc [--libs "<words>"] <file.pc>...   (closepc.zig)
+//!   zig-toolchain check-alignment [--expect <subdir>,...] <dir>...
+//!                                                             one build number per package
+//!                                                             across subdirs (alignment.zig)
 //!   zig-toolchain <triple>-<tool> <args>...                   the tool, by name
 //!   zig-toolchain pe-machine <file>...                        a PE/COFF file's machine
 //!   zig-toolchain version | --version
@@ -43,6 +46,7 @@ const target = @import("target.zig");
 const flags = @import("flags.zig");
 const binutils = @import("binutils.zig");
 const closepc = @import("closepc.zig");
+const alignment = @import("alignment.zig");
 
 pub const version = "0.1.0";
 
@@ -93,6 +97,7 @@ const usage_text =
     \\usage: <triple>-{cc,c++,ar,ranlib,dlltool,windres,rc,strip} [args...]
     \\       zig-toolchain <triple>-<tool> [args...]
     \\       zig-toolchain close-pc [--libs "<words>"] <file.pc>...
+    \\       zig-toolchain check-alignment [--expect <subdir>,...] <dir>...
     \\       zig-toolchain pe-machine <file>...
     \\       zig-toolchain version
     \\       zig-toolchain tools
@@ -115,6 +120,7 @@ pub fn main(init: std.process.Init) !u8 {
     }
     const sub = args[1];
     if (mem.eql(u8, sub, "close-pc")) return closepc.run(io, a, args[2..]);
+    if (mem.eql(u8, sub, "check-alignment")) return alignment.run(io, a, args[2..]);
     if (mem.eql(u8, sub, "pe-machine")) return peMachine(io, a, args[2..]);
     if (mem.eql(u8, sub, "tools")) {
         for (tool_names) |n| {
@@ -253,6 +259,7 @@ test {
     _ = flags;
     _ = binutils;
     _ = closepc;
+    _ = alignment;
 }
 
 test "names" {
