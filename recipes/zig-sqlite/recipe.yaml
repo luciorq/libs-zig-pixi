@@ -1,0 +1,90 @@
+# zig-sqlite: SQLite, static only, for Windows (win-64, win-arm64),
+# cross-built on linux with zig-toolchain. The amalgamation compiled
+# directly with the Rtools option set (compile-options.h). Installed under
+# the private sub-prefix Library/zig-libs/<zig triple>/ (D2):
+# lib/libsqlite3.a, include/{sqlite3,sqlite3ext}.h, lib/pkgconfig/sqlite3.pc
+# (closed, relocatable), licenses/sqlite/.
+context:
+  # Rtools45 build 6768 (D9), variants.yaml; the amalgamation number is
+  # X.Y.Z as XYYZZ00 (3.51.2 -> 3510200)
+  version: ${{ sqlite_version }}
+  amalgamation: ${{ ((version | split(".") | list)[0] | int) * 1000000 + ((version | split(".") | list)[1] | int) * 10000 + ((version | split(".") | list)[2] | int) * 100 }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-sqlite
+  version: ${{ version }}
+
+source:
+  # SHA3-256 of its sqlite3.c is 733b3fcc6cccb1e3...a9e61367, as the 3.51.2
+  # release log (sqlite.org/releaselog/3_51_2.html) states
+  - url: https://sqlite.org/2026/sqlite-autoconf-${{ amalgamation }}.tar.gz
+    sha256: fbd89f866b1403bb66a143065440089dd76100f2238314d92274a082d4f2b7bb
+  # the package test (tests/pkgtest.zig, tests/smoke/sqlite.c), for
+  # tests.files below; the build does not use it. compile-options.h at the
+  # same place relative to the smoke source as in the repo, which includes
+  # it as ../../recipes/zig-sqlite/compile-options.h
+  - path: ../../tests
+    target_directory: zig-libs-tests
+  - path: compile-options.h
+    target_directory: recipes/zig-sqlite
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+  run_exports:
+    weak:
+      - ${{ pin_subpackage("zig-sqlite", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libsqlite3.a
+          - ${{ sub }}/include/sqlite3.h
+          - ${{ sub }}/include/sqlite3ext.h
+          - ${{ sub }}/lib/pkgconfig/sqlite3.pc
+          - ${{ sub }}/licenses/sqlite/LICENSE
+        # static only (D3): no DLL, no import library, no MSVC-named library
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+  # tests/pkgtest.zig (its header says what it checks): the relocated .pc
+  # resolves to existing paths, no absolute prefix in it, no build path in
+  # libsqlite3.a, and tests/smoke/sqlite.c links (and runs, on Windows of
+  # the same arch: RTREE query, PRAGMA compile_options == compile-options.h).
+  # One plain command, so bash (linux) and cmd.exe (Windows) run it alike.
+  - script:
+      - zig run --global-cache-dir .zig-global-cache --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- ${{ zt }} sqlite3 zig-libs-tests/smoke/sqlite.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/sqlite.c
+        - recipes/zig-sqlite/compile-options.h
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+
+about:
+  homepage: https://sqlite.org/
+  license: blessing
+  license_file: LICENSE
+  summary: SQLite, static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://sqlite.org/src

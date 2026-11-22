@@ -1,0 +1,107 @@
+# zig-proj: PROJ (C/C++ library), static only, for Windows (win-64,
+# win-arm64), cross-built on linux with zig-toolchain, libc++ as zig links
+# it. SQLite from zig-sqlite (host). Installed under the private sub-prefix
+# Library/zig-libs/<zig triple>/ (D2): lib/libproj.a, include/{proj.h,
+# proj_experimental.h,proj_constants.h,proj_symbol_rename.h,geodesic.h,
+# proj/}, lib/pkgconfig/proj.pc (closed, relocatable: Requires sqlite3,
+# -lproj -lc++ -lole32 -lshell32), share/proj/ (proj.db
+# and the other resource files, which sf and terra copy), licenses/proj/.
+# proj.db is also embedded in the archive (PROJ's EMBED_RESOURCE_FILES
+# default for static builds, D16), so PROJ works without PROJ_DATA.
+context:
+  version: ${{ proj_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-proj
+  version: ${{ version }}
+
+source:
+  # md5 54fab91b4a9ec04910f843f8fb195fc2 as proj-9.7.1.tar.gz.md5 on
+  # download.osgeo.org states
+  - url: https://download.osgeo.org/proj/proj-${{ version }}.tar.gz
+    sha256: 6c097dc803c561929cdfcc46e4bf9945ea977611fb31493ad14e88edaeae260f
+  # the package test (tests/pkgtest.zig, tests/smoke/proj.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    - cmake
+    - ninja
+    # the build machine's sqlite3 shell (EXE_SQLITE3) generates proj.db
+    # from data/sql/*.sql (DESIGN R6); the toolchain file finds programs
+    # only outside the sub-prefix
+    - sqlite
+  host:
+    - zig-sqlite
+  run_exports:
+    weak:
+      # PROJ's C++ API and proj.db layout change between minor versions
+      # (DESIGN 5.9)
+      - ${{ pin_subpackage("zig-proj", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libproj.a
+          - ${{ sub }}/include/proj.h
+          - ${{ sub }}/include/proj/crs.hpp
+          - ${{ sub }}/lib/pkgconfig/proj.pc
+          - ${{ sub }}/share/proj/proj.db
+          - ${{ sub }}/share/proj/proj.ini
+          - ${{ sub }}/licenses/proj/COPYING
+        # static only (D3): no DLL, no import library, no MSVC-named library
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.exe"
+          - "**/share/bash-completion/**"
+          # proj.pc is the interface (DESIGN 5.5); the CMake config named
+          # shell32.lib/ole32.lib, which a MinGW link cannot resolve
+          - "**/lib/cmake/proj*/**"
+  # tests/pkgtest.zig (its header says what it checks): the relocated .pc
+  # resolves to existing paths, no absolute prefix in it, no build path in
+  # libproj.a, and tests/smoke/proj.c (EPSG:4326 -> EPSG:3857) links through
+  # `pkgconf --libs proj` alone (and runs, on Windows of the same arch,
+  # with the embedded proj.db). Over the closure (libproj.a, libsqlite3.a):
+  # libc++ only (--libcxx), no C symbol defined twice, so no sqlite3_* in
+  # libproj.a (--unique-c-symbols, DESIGN R5), no dllexport directives.
+  # One plain command for bash (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --global-cache-dir .zig-global-cache --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --libcxx --unique-c-symbols --no-dllexport ${{ zt }} proj zig-libs-tests/smoke/proj.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/proj.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://proj.org/
+  license: MIT
+  license_file: COPYING
+  summary: PROJ coordinate transformation library, static C/C++ library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/OSGeo/PROJ

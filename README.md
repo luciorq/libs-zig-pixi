@@ -40,6 +40,7 @@ pixi run build-toolchain          # zig-toolchain (linux-64), needed by every re
 pixi run build <pkg> <subdir>     # for example: pixi run build zig-zlib win-64
 pixi run build-libs <subdir>      # every library recipe, in dependency order (as CI)
 pixi run check-alignment          # one build number per package across subdirs
+pixi run smoke <modules> <sources> [<subdir>]   # keep smoke executables, e.g. pixi run smoke sqlite3 sqlite.c
 ```
 
 CI (`.github/workflows/build.yml`) runs the same tasks on linux and tests every package on `windows-latest` and `windows-11-arm`.

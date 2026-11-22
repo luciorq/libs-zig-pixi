@@ -37,14 +37,23 @@ args = ["recipe", { arg = "subdir", default = "win-64" }]
 cmd = "rattler-build build --recipe recipes/{{ recipe }} --target-platform {{ subdir }} -m variants.yaml --output-dir $LIBS_ZIG_OUT -c file://$LIBS_ZIG_OUT -c conda-forge --no-build-id"
 
 # Every library recipe for one subdir, in dependency order: pixi runs
-# depends-on in the order listed. A new recipe is one line here (M1:
-# zig-sqlite, zig-expat, zig-openssl). CI runs this (build.yml), so the list
-# lives only here.
+# depends-on in the order listed. A new recipe is one line here. CI runs
+# this (build.yml), so the list lives only here. zig-openssl needs
+# zig-zlib; zig-proj zig-sqlite; zig-gdal zig-proj, zig-geos, zig-sqlite,
+# zig-expat and zig-zlib (their host requirements).
 [tasks.build-libs]
 description = "Build every library recipe for <subdir> (win-64 | win-arm64), in dependency order"
 args = [{ arg = "subdir", default = "win-64" }]
 depends-on = [
   { task = "build", args = ["zig-zlib", "{{ subdir }}"] },
+  { task = "build", args = ["zig-sqlite", "{{ subdir }}"] },
+  { task = "build", args = ["zig-expat", "{{ subdir }}"] },
+  { task = "build", args = ["zig-openssl", "{{ subdir }}"] },
+  { task = "build", args = ["zig-abseil", "{{ subdir }}"] },
+  { task = "build", args = ["zig-onetbb", "{{ subdir }}"] },
+  { task = "build", args = ["zig-geos", "{{ subdir }}"] },
+  { task = "build", args = ["zig-proj", "{{ subdir }}"] },
+  { task = "build", args = ["zig-gdal", "{{ subdir }}"] },
 ]
 
 # One build number per package across subdirs (D17, CONVENTIONS.md). The
@@ -65,9 +74,9 @@ args = ["package_file"]
 cmd = "rattler-build test --package-file {{ package_file }} -c file://$LIBS_ZIG_OUT -c conda-forge"
 
 [tasks.smoke]
-description = "Cross-link tests/smoke/<lib>.c against a built package with the zig-toolchain wrappers"
-args = ["lib", { arg = "subdir", default = "win-64" }]
-cmd = "bash tests/smoke/link.sh {{ lib }} {{ subdir }}"
+description = "Cross-link smoke sources (tests/smoke/<file>, comma-separated) against the built zig-* packages of <subdir> with tests/pkgtest.zig; keeps the executables"
+args = ["modules", "sources", { arg = "subdir", default = "win-64" }]
+cmd = "bash tests/smoke/link.sh {{ subdir }} {{ modules }} {{ sources }}"
 
 [tasks.toolchain-test]
 description = "zig build test of the zig-toolchain sources"

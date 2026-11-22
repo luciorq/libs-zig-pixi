@@ -186,7 +186,8 @@ Ship `lib<n>.a` only: no DLL, no `lib<n>.dll.a`, never `<n>.lib`.
 ```
 <envdir>/zig-libs/<zig-triple>/{include, lib/*.a, lib/pkgconfig/*.pc, lib/cmake/*, share/gdal, share/proj, licenses/<pkg>/}
 ```
-`<envdir>` is `$PREFIX/Library` on Windows and `$PREFIX` on unix (rzig's `Env.dir`). The triple is `x86_64-windows-gnu` or `aarch64-windows-gnu`.
+`<envdir>` is `$PREFIX/Library` on Windows and `$PREFIX` on unix (rzig's `Env.dir`).
+- `lib/cmake/*` only where the upstream config is relocatable and links with zig: slice 1 ships absl, expat, GEOS and TBB, and removes OpenSSL's (static deps not closed), PROJ's and GDAL's (`shell32.lib`/`ole32.lib` spellings the zig MinGW link cannot find); the `.pc` is the interface (slice1 PLAN D51, D67, S1-F15) V. The triple is `x86_64-windows-gnu` or `aarch64-windows-gnu`.
 - No file in common with any conda-forge package, so zig-* packages coexist with `libgdal-core` and friends [consumer §3]. Installing at conda-forge's paths would overwrite `Library/include/{gdal,ogr,cpl,proj,geos,absl,tbb}*`, conflict on zlib/sqlite (r-zig-slim needs `zlib`) and abseil/libprotobuf, and block conda-forge GDAL on linux/macOS.
 - Both arches can sit side by side; noarch "sysroot-like" packages for linking from linux become possible later (I).
 - No header name zig itself ships (no MinGW sysroot headers, no `c++/`, no `omp.h`; W15 rule) [consumer §3].
@@ -197,14 +198,14 @@ Written by `zig-toolchain close-pc` after install [consumer §1, §3]:
 2. **Relocatable.** `prefix=${pcfiledir}/../..`, no absolute path, so placeholder slash rewriting on Windows does not matter (R1).
 3. `Requires:` only names zig-libs modules.
 4. **Cflags carry static defines** where a header would otherwise emit `__imp_` references (`-DCURL_STATICLIB` when curl arrives; oneTBB's export header checked in M2) [review L5]. lld in MinGW mode tolerates locally defined imports (I).
-5. **Abseil:** abseil's own CMake writes one `absl_<component>.pc` per module with `Version:` = LTS date; the post-step drops `-Wnon-virtual-dtor` (as CRAN) and closes in `dbghelp` etc. [mxe §B] [infra §6].
+5. **Abseil:** abseil's own CMake writes one `absl_<component>.pc` per module with `Version:` = LTS date; close-pc closes in `dbghelp` etc. [mxe §B] [infra §6]. No post-step for `-Wnon-virtual-dtor`: abseil 20250127's `.pc` Cflags never contain it (only `-Wno-*`, `-D`, `-I`), and the package test forbids it (slice1 PLAN D54) V.
 
 ### 5.6 Data (D16, default)
 - `share/proj/proj.db` and `share/gdal/*` from the same build, because sf, terra and gdalraster copy `$(R_TOOLS_SOFT)/share/{gdal,proj}` into the installed package [consumer §1] V.
 - `EMBED_RESOURCE_FILES`: PROJ keeps its own default (ON for static builds, `CMakeLists.txt:392-396`, 9.7.1) [review M8] V; GDAL sets it ON. The duplication (~10+ MB per DLL, I) is accepted so the packages behave as on CRAN.
 
 ### 5.7 Build paths and prefix detection
-GDAL and PROJ compile install data paths into the archives (I). `-ffile-prefix-map` removes source paths; the remaining install prefix strings would trigger rattler-build's binary prefix replacement in `.a` members. Recipes exclude `**/*.a` from prefix detection (`build.prefix_detection.ignore`, key spelling A, M0) [review L4]. The embedded paths are unused: R packages set `PROJ_DATA`/`GDAL_DATA` to their copied `share/` and the resources are embedded.
+`-ffile-prefix-map` removes source paths. Install paths are kept out of the archives at the source, not handled by prefix detection: PROJ with `EMBED_PROJ_DATA_PATH=OFF`, GDAL with a recipe patch removing `INST_DATA`, `SYSCONFDIR`, `INSTALL_PLUGIN_FULL_DIR` and `GDAL_PREFIX`, OpenSSL configured for the neutral prefix `/zig-libs/<triple>` with `-DOSSL_WINCTX` (slice1 PLAN D50, D57, D59). No slice-1 package has a `prefix_placeholder` entry, so no recipe uses `build.prefix_detection.ignore`, and pkgtest refuses any archive holding a build path (slice1 PLAN S1-F9) V. Data come from `PROJ_DATA`/`GDAL_DATA` (R packages set them to their copied `share/`) or the embedded resources.
 
 ### 5.8 Licences
 - `about.license` (SPDX) and `about.license_file` per recipe; a copy under `zig-libs/<triple>/licenses/<pkg>/`, since the archives end up inside R package DLLs.
@@ -261,10 +262,10 @@ Versions are Rtools45 build 6768 [mxe §B] (D9). Build order follows the depende
 | 3 | zig-expat | 2.7.3 | CMake | static; `EXPAT_BUILD_TOOLS/EXAMPLES/TESTS=OFF` | none expected (A) | AYCB/libexpat 2.9.0: reference (x86_64 Windows CI only) [zigports §2] |
 | 4 | zig-geos | 3.14.1 | CMake (C++) | `-DBUILD_SHARED_LIBS=OFF -DBUILD_GEOSOP=OFF -DBUILD_TESTING=OFF` | none; our closed `geos.pc` replaces CRAN's `geos-config` patch | none usable (stale) |
 | 5 | zig-proj | 9.7.1 | CMake | `-DBUILD_SHARED_LIBS=OFF -DENABLE_TIFF=OFF -DENABLE_CURL=OFF -DBUILD_APPS=OFF -DBUILD_TESTING=OFF`; build-env `sqlite3` as `EXE_SQLITE3` | none expected | CIC/proj 9.9.0: not reused (exports 286 `sqlite3_*` symbols from a private SQLite, one maintainer, not rechecked on 0.17) [zigports §3] V; its `proj-db-gen` is a reference |
-| 6 | zig-gdal | 3.12.1 | CMake (C++) | 6.3 | probably none (CRAN's `gdal-1..3` concern apps, 3.12.0 or poppler) [mxe §B] V | none exists [mxe §E] |
-| 7 | zig-abseil | 20250127.0 | CMake | `-DCMAKE_CXX_STANDARD=17 -DABSL_PROPAGATE_CXX_STD=ON -DBUILD_SHARED_LIBS=OFF -DABSL_BUILD_TESTING=OFF`; `.pc` post-step | none expected; maybe `-DABSL_FORCE_WAITER_MODE=4` as s2 uses (A) | AYCB/abseil 20260526.0: fallback (builds both arches in 37 s, but one `abseil.lib`, no `absl_*.pc`; s2 needs 25 `absl_*` modules) [zigports §3] [consumer §1] V |
-| 8 | zig-onetbb | 2022.2.0 | CMake | `-DTBB_TEST=OFF -DTBB_STRICT=OFF -DBUILD_SHARED_LIBS=OFF`; archive named `libtbb12.a` (terra hard-codes `-ltbb12`) | CRAN's `intel-tbb-1-msys2-fixes.patch` [mxe §B] | RichieSams/zig-oneTBB: reference |
-| 9 | zig-openssl | 3.6.0 | Perl `Configure mingw64` / `mingwarm64` | `--prefix=<sub-prefix> --libdir=lib no-shared no-module no-capieng no-tests zlib`, `CC/AR/RANLIB` = wrappers | none expected | AYCB/openssl 3.3.2: not reused (old, no CI) [zigports §2] |
+| 6 | zig-gdal | 3.12.1 | CMake (C++) | 6.3 | `0001-no-install-paths-compiled-in.patch` (slice1 PLAN D59) V; CRAN's `gdal-1..3` concern apps, 3.12.0 or poppler [mxe §B] V | none exists [mxe §E] |
+| 7 | zig-abseil | 20250127.0 | CMake | `-DCMAKE_CXX_STANDARD=17 -DABSL_PROPAGATE_CXX_STD=ON -DBUILD_SHARED_LIBS=OFF -DABSL_BUILD_TESTING=OFF`; `.pc` post-step | `0001-cctz-mingw-without-windows-globalization-h.patch` (zig's MinGW headers lack `windows.globalization.h`, slice1 PLAN D53, S1-F13) V; `ABSL_FORCE_WAITER_MODE` not set | AYCB/abseil 20260526.0: fallback (builds both arches in 37 s, but one `abseil.lib`, no `absl_*.pc`; s2 needs 25 `absl_*` modules) [zigports §3] [consumer §1] V |
+| 8 | zig-onetbb | 2022.2.0 | CMake | `-DTBB_TEST=OFF -DTBB_STRICT=OFF -DBUILD_SHARED_LIBS=OFF`; archive named `libtbb12.a` (terra hard-codes `-ltbb12`) | CRAN's `intel-tbb-1-msys2-fixes.patch` [mxe §B]; `0002-static-build-exports-nothing.patch` (no `-export:` in the static archive, slice1 PLAN D68, S1-F5) V | RichieSams/zig-oneTBB: reference |
+| 9 | zig-openssl | 3.6.0 | Perl `Configure mingw64` / `mingwarm64` | `--prefix=/zig-libs/<triple> --openssldir=/zig-libs/<triple>/ssl` installed with `DESTDIR=$PREFIX/Library`, `-DOSSL_WINCTX=zig_libs` (slice1 PLAN D50), `--libdir=lib no-shared no-module no-capieng no-tests zlib`, `CC/AR/RANLIB` = wrappers | none expected | AYCB/openssl 3.3.2: not reused (old, no CI) [zigports §2] |
 
 **OpenSSL `--libdir=lib` is required.** 3.6.0's `mingw64` target has `multilib => "64"` and `mingwarm64` `multilib => "-arm64"`, and `unix-Makefile.tmpl:330` sets `$libdir = "lib$target{multilib}"`, so without it the archives land in `lib64/` or `lib-arm64/` [review M1] V. MXE passes `--libdir` too. `no-asm` is a documented fallback if aarch64 perlasm fails (I; llvm-mingw builds it with asm).
 

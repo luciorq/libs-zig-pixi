@@ -1,0 +1,23 @@
+Static oneTBB exports nothing on MinGW (zig-onetbb, F4 of the slice-1
+review). Upstream's _export.h makes __TBB_EXPORT __declspec(dllexport) for
+every MinGW build, so the static archive carried -export: directives (27
+objects in libtbb12.a) and every consumer DLL re-exported TBB's r1 API; a
+DLL linked without a .def file then exported only TBB and no symbol of its
+own (MinGW turns auto-export off once any dllexport is seen). The static
+build is recognised by __TBB_SOURCE_DIRECTLY_INCLUDED, which
+src/tbb/CMakeLists.txt defines when BUILD_SHARED_LIBS is off.
+
+--- a/include/oneapi/tbb/detail/_export.h
++++ b/include/oneapi/tbb/detail/_export.h
+@@ -17,7 +17,10 @@
+ #ifndef __TBB_detail__export_H
+ #define __TBB_detail__export_H
+ 
+-#if defined(__MINGW32__)
++// zig-onetbb: the static build (__TBB_SOURCE_DIRECTLY_INCLUDED, set by
++// src/tbb/CMakeLists.txt when BUILD_SHARED_LIBS is off) exports nothing, so
++// a consumer DLL does not re-export TBB and keeps MinGW auto-export.
++#if defined(__MINGW32__) && !__TBB_SOURCE_DIRECTLY_INCLUDED
+     #define __TBB_EXPORT __declspec(dllexport)
+ #elif defined(_WIN32) // Use .def files for these
+     #define __TBB_EXPORT
