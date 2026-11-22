@@ -74,6 +74,7 @@ All dated 2026-11-21 and "default (user may revisit)". Three need the user's eye
 | D75 | close-pc: a `.pc` with `Libs.private` (or `--libs`) but no `Libs:` line, and keys spelled `CFlags:` (review finding, low) | A add the missing `Libs:` line (as for Cflags and Requires) and match keys ignoring case, as pkgconf does; B fail with BadPc; C leave | A | before, `prefix=/p`, `Libs.private: -ld`, `Cflags: -I/p/include` with `--libs -lws2_32` exited 0 with no Libs line at all, and `CFlags:` plus `Cflags.private:` gave two Cflags lines. None of the nine shipped `.pc` files hits either (202 modules per subdir resolve). Under D37 `zig_toolchain` stays 0.1.0 |
 | D76 | `pixi run smoke` listing of written exes | A list only the exes this run wrote (newer than a marker made before the link); B drop the listing | A | the old `ls` listed every exe in the directory, stale ones included |
 | D77 | Review items with no fix in slice 1 | fix now or record and defer | defer: unprefixed json-c in libgdal (S1-F10), `proj.db` shipped twice (S1-F11), unpinned build tools outside the hash (S1-F18), scratch dirs in `$R` | none breaks a slice-1 link or test; each has an owner below (Next steps) |
+| D78 | GDAL's binding-only package lookups (S1-F22) | A `CMAKE_DISABLE_FIND_PACKAGE_*` for SWIG, Python, JNI, Java, CSharp; B drop `SWIG_DIR` from the host-path check; C `CMAKE_FIND_ROOT_PATH_MODE_PROGRAM ONLY` in the toolchain file | A; default (user may revisit), 2026-11-22 | the lookups serve only the bindings and autotests, which are off; B weakens the check; C would also hide the build env's perl and sqlite3 (toolchain file comment) and changes zig-toolchain for every recipe |
 
 ## Findings
 
@@ -146,6 +147,8 @@ Toolchain: zig 0.17.1 (conda-forge), zig-toolchain 0.1.0 `zig_69dc1b3_0`; cmake 
 
 **S1-F21 V. Final clean rebuild after the close-pc fallback change (D75), 2026-11-21.** Fresh output dir `/data/gamma/luciorq/workspaces/temp/r-zig-pixi/libs-final/out` with the repo tasks: `toolchain-test`, `build-toolchain`, `build-libs win-64`, `build-libs win-arm64`, `check-alignment` all rc=0; `pixi run test` for all 18 library packages rc=0, each log has `all tests passed` (logs in `libs-final/logs/`). Build strings equal the kappa-tested build in `libs-slice1/` (for example zig-gdal `zig_d646007_0` / `zig_e59a93e_0`), and all 404 installed `.pc` files are byte-identical to it (`diff -r` of the unpacked `.pc` files), so the kappa results above still apply.
 
+**S1-F22 V. PR #2 CI run 44967259971 (head 3933eb7), 2026-11-22: all four cross jobs failed at zig-gdal's configure check.** toolchain (both zigs) passed; cross win-64 and win-arm64, default and upstream-zig, built the seven libraries before GDAL, then `zig-gdal: SWIG_DIR:PATH=/usr/share/swig/4.4.0 is not in $PREFIX/Library/zig-libs/<triple>`, exit 1. The test and alignment jobs failed only because there were no packages (no package was tested). Cause: GDAL's top-level `CMakeLists.txt:186` calls `find_package(SWIG)` (optional) even with every `BUILD_*_BINDINGS=OFF`; the toolchain file searches programs on the build host (`CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER`), the ubuntu-24.04 runner has `/usr/bin/swig`, and the recipe's check that every found library, include and package dir is in `$ZIG_LIBS_PREFIX` rejected the cached `SWIG_DIR`. gamma has no swig, so the local builds never saw it. Fix: `-DCMAKE_DISABLE_FIND_PACKAGE_{SWIG,Python,JNI,Java,CSharp}=ON` in `recipes/zig-gdal/build.sh`; GDAL uses them only for bindings and autotests (`CMakeLists.txt:186-250`, `cmake/helpers/CheckDependentLibraries.cmake:510-518`); decision D78. Verified locally: the fixed recipe builds zig-gdal win-64 with a fake `swig` first on PATH, configure shows the five flags, build string unchanged `zig_d646007_0`, `all tests passed`. Not reproduced locally: with the fake swig in a scratch dir on PATH (PATH does reach the build script, checked with a probe recipe), the old recipe's GDAL configure printed `Could NOT find SWIG` and never ran it, while a bare CMake project with the same toolchain file and cmake 4.5.1 found it; the cause of that difference is not known. The next PR run is the check. The `-mcpu=` errors in the CI log are OpenSSL's configure probes, 42 also in the passing local log (S1-F12).
+
 ### Sizes (V, bytes, integrated channel `$B`)
 
 | Package | win-64 .conda | win-arm64 .conda | Main archives, win-64 / win-arm64 |
@@ -200,6 +203,7 @@ Build: cross build on linux in the integrated run (S1-F2). Recipe tests linux: t
 - A real CMake consumer of the remaining configs (absl, TBB, GEOS, expat).
 - That `proj.db` equals the Rtools build's.
 - The cause of OpenSSL's 42 `-mcpu=` lines (S1-F12).
+- The S1-F22 fix on the hosted runner (a second PR run); why the local fake swig was not searched.
 
 ## Next steps
 

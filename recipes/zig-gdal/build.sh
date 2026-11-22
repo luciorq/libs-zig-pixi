@@ -18,12 +18,21 @@ echo "zig-gdal: ZIG_BIN='${zig_bin}' zig version: $v ($(command -v "${zig_bin:-z
 # included (DESIGN 6.3). All built-in drivers (D14). No try_run runs in
 # this configuration (the only one, the iconv charset check, is behind
 # GDAL_USE_ICONV), so no preset cache entries are needed.
+# GDAL looks for SWIG, Python, JNI, Java and CSharp even with the bindings
+# off; programs are found on the build host (FIND_ROOT_PATH_MODE_PROGRAM
+# NEVER), so a host swig leaked SWIG_DIR=/usr/share/swig/... into the
+# cache on the hosted runner (slice1 PLAN S1-F22). Not looked for at all.
 cmake -S . -B _build ${CMAKE_ARGS} \
   -DBUILD_APPS=OFF \
   -DBUILD_TESTING=OFF \
   -DBUILD_PYTHON_BINDINGS=OFF \
   -DBUILD_JAVA_BINDINGS=OFF \
   -DBUILD_CSHARP_BINDINGS=OFF \
+  -DCMAKE_DISABLE_FIND_PACKAGE_SWIG=ON \
+  -DCMAKE_DISABLE_FIND_PACKAGE_Python=ON \
+  -DCMAKE_DISABLE_FIND_PACKAGE_JNI=ON \
+  -DCMAKE_DISABLE_FIND_PACKAGE_Java=ON \
+  -DCMAKE_DISABLE_FIND_PACKAGE_CSharp=ON \
   -DGDAL_USE_EXTERNAL_LIBS=OFF \
   -DGDAL_USE_INTERNAL_LIBS=ON \
   -DGDAL_USE_GEOS=ON \
