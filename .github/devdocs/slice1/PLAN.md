@@ -149,6 +149,8 @@ Toolchain: zig 0.17.1 (conda-forge), zig-toolchain 0.1.0 `zig_69dc1b3_0`; cmake 
 
 **S1-F22 V. PR #2 CI run 44967259971 (head 3933eb7), 2026-11-22: all four cross jobs failed at zig-gdal's configure check.** toolchain (both zigs) passed; cross win-64 and win-arm64, default and upstream-zig, built the seven libraries before GDAL, then `zig-gdal: SWIG_DIR:PATH=/usr/share/swig/4.4.0 is not in $PREFIX/Library/zig-libs/<triple>`, exit 1. The test and alignment jobs failed only because there were no packages (no package was tested). Cause: GDAL's top-level `CMakeLists.txt:186` calls `find_package(SWIG)` (optional) even with every `BUILD_*_BINDINGS=OFF`; the toolchain file searches programs on the build host (`CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER`), the ubuntu-24.04 runner has `/usr/bin/swig`, and the recipe's check that every found library, include and package dir is in `$ZIG_LIBS_PREFIX` rejected the cached `SWIG_DIR`. gamma has no swig, so the local builds never saw it. Fix: `-DCMAKE_DISABLE_FIND_PACKAGE_{SWIG,Python,JNI,Java,CSharp}=ON` in `recipes/zig-gdal/build.sh`; GDAL uses them only for bindings and autotests (`CMakeLists.txt:186-250`, `cmake/helpers/CheckDependentLibraries.cmake:510-518`); decision D78. Verified locally: the fixed recipe builds zig-gdal win-64 with a fake `swig` first on PATH, configure shows the five flags, build string unchanged `zig_d646007_0`, `all tests passed`. Not reproduced locally: with the fake swig in a scratch dir on PATH (PATH does reach the build script, checked with a probe recipe), the old recipe's GDAL configure printed `Could NOT find SWIG` and never ran it, while a bare CMake project with the same toolchain file and cmake 4.5.1 found it; the cause of that difference is not known. The next PR run is the check. The `-mcpu=` errors in the CI log are OpenSSL's configure probes, 42 also in the passing local log (S1-F12).
 
+**S1-F23 V. PR #2 CI run 44984149674 (head 1dabd66, lock 59f7431), 2026-11-22: 12/12 jobs passed, both zigs.** Read row by row, not from the job status. toolchain linux-64 default 4m34s, upstream-zig 6m42s. cross (ubuntu): win-64 default 61m04s, win-64 upstream-zig 41m09s, win-arm64 default 26m43s, win-arm64 upstream-zig 31m22s (under D72's 150 min). Each cross leg logs the zig it ran per recipe: default `ZIG_BIN='' zig version: 0.17.1 ($BUILD_PREFIX/bin/zig)`, upstream-zig `ZIG_BIN='…/.pixi/envs/upstream-zig/lib/python3.13/site-packages/ziglang/zig' zig version: 0.17.1`. The S1-F22 fix: configure shows the five `CMAKE_DISABLE_FIND_PACKAGE_*` flags on all four legs and GDAL builds. test: windows-latest (`windows-2025-vs2026` 20261116.315.1) and windows-11-arm (`windows-11-vs2026-arm64` 20261115.219.1), each leg `9 package(s) tested, 0 failed`, 9× `all tests passed!`, 9× `pkgtest: all checks passed`, 10 smokes `ran: OK` (geos C and C++), PE machine 0x8664 resp. 0xaa64; GDAL `drivers: 166`; oneTBB on arm64 `sum 500000500000 (want 500000500000), threads used 4` and `Mutex: 4 threads x 10000 = 40000`. Test jobs 24m53s to 30m58s (D72's 60 min). build-number alignment: `build alignment OK: 10 package version(s) over 3 subdir(s)`. First run of every library on Windows ARM hardware.
+
 ### Sizes (V, bytes, integrated channel `$B`)
 
 | Package | win-64 .conda | win-arm64 .conda | Main archives, win-64 / win-arm64 |
@@ -168,34 +170,31 @@ Smoke exes from the per-recipe runs (x86_64 / aarch64): sqlite 1393664 / 1283072
 
 ## Results
 
-Build: cross build on linux in the integrated run (S1-F2). Recipe tests linux: the package's own tests, run after the build and again by `pixi run test` (S1-F2, S1-F4). kappa win-64 run: build.yml's test step on kappa, smoke run natively (S1-F7, S1-F8). windows-11-arm: the CI leg; nothing has run on arm64 hardware.
+Build: cross build on linux in the integrated run (S1-F2) and on GitHub with both zigs (S1-F23). Recipe tests linux: the package's own tests, run after the build and again by `pixi run test` (S1-F2, S1-F4). kappa win-64 run: build.yml's test step on kappa, smoke run natively (S1-F7, S1-F8). windows-11-arm: the CI leg, run 44984149674 (S1-F23).
 
 | Package | Subdir | Build | Recipe tests linux | kappa win-64 run | windows-11-arm |
 |---|---|---|---|---|---|
 | zig-sqlite | win-64 | V pass | V pass | V OK | n/a |
-| zig-sqlite | win-arm64 | V pass | V pass (PE 0xaa64) | n/a | pending CI |
+| zig-sqlite | win-arm64 | V pass | V pass (PE 0xaa64) | n/a | V OK (CI, both zigs, S1-F23) |
 | zig-expat | win-64 | V pass | V pass | V OK | n/a |
-| zig-expat | win-arm64 | V pass | V pass (PE 0xaa64) | n/a | pending CI |
+| zig-expat | win-arm64 | V pass | V pass (PE 0xaa64) | n/a | V OK (CI, both zigs, S1-F23) |
 | zig-openssl | win-64 | V pass | V pass | V OK | n/a |
-| zig-openssl | win-arm64 | V pass | V pass (PE 0xaa64) | n/a | pending CI |
+| zig-openssl | win-arm64 | V pass | V pass (PE 0xaa64) | n/a | V OK (CI, both zigs, S1-F23) |
 | zig-abseil | win-64 | V pass | V pass | V OK | n/a |
-| zig-abseil | win-arm64 | V pass | V pass (PE 0xaa64) | n/a | pending CI |
+| zig-abseil | win-arm64 | V pass | V pass (PE 0xaa64) | n/a | V OK (CI, both zigs, S1-F23) |
 | zig-onetbb | win-64 | V pass | V pass | V OK (12 threads) | n/a |
-| zig-onetbb | win-arm64 | V pass | V pass (PE 0xaa64) | n/a | pending CI |
+| zig-onetbb | win-arm64 | V pass | V pass (PE 0xaa64) | n/a | V OK (CI, both zigs, S1-F23) |
 | zig-geos | win-64 | V pass | V pass | V OK (C and C++) | n/a |
-| zig-geos | win-arm64 | V pass | V pass (PE 0xaa64) | n/a | pending CI |
+| zig-geos | win-arm64 | V pass | V pass (PE 0xaa64) | n/a | V OK (CI, both zigs, S1-F23) |
 | zig-proj | win-64 | V pass | V pass | V OK (file and embedded proj.db) | n/a |
-| zig-proj | win-arm64 | V pass | V pass (PE 0xaa64) | n/a | pending CI |
+| zig-proj | win-arm64 | V pass | V pass (PE 0xaa64) | n/a | V OK (CI, both zigs, S1-F23) |
 | zig-gdal | win-64 | V pass | V pass | V OK (166 drivers) | n/a |
-| zig-gdal | win-arm64 | V pass | V pass (PE 0xaa64) | n/a | pending CI |
-| zig-zlib (M0) | both | V pass | V pass | V OK | pending CI |
+| zig-gdal | win-arm64 | V pass | V pass (PE 0xaa64) | n/a | V OK (CI, both zigs, S1-F23) |
+| zig-zlib (M0) | both | V pass | V pass | V OK | V OK (CI, both zigs, S1-F23) |
 
 ## Not verified
 
-- Anything on win-arm64 hardware: only the PE machine `0xaa64` of every smoke; the `windows-11-arm` CI leg is the first run (oneTBB on aarch64 MinGW, R8, included).
-- build.yml on GitHub: every job, the new timeouts (D72, estimates), the test step's summary lines (D73).
-- The rebuild after D75/D76 (`$R/fix2-logs/`, started 18:33): its results are not in this record; the 22/22 toolchain test count above predates D75.
-- The upstream-zig (`ZIG_BIN`, PyPI ziglang) leg of the eight new recipes.
+- The toolchain test count after D75: the 22/22 above predates it; S1-F21's `toolchain-test` passed (rc=0) but its count is not recorded.
 - R packages (M4): `R CMD SHLIB`/rzig links of sf, terra, gdalraster, s2; the DLL smokes DESIGN 5.10 asks for from M2 (D20); multi-threaded terra and `dyn.unload` with TBB workers (S1-F6); s2 itself against the 26 abseil modules (the module list comes from the task text, not CRAN's s2 `configure.win`).
 - GDAL driver parity with the Rtools build (166 drivers here; CRAN's set not counted), and Shapefile in the smoke (S1-F20).
 - OpenSSL with the `OSSL_WINCTX` registry key present (D50, S1-F14); TLS handshakes and providers beyond SHA-256.
@@ -203,11 +202,11 @@ Build: cross build on linux in the integrated run (S1-F2). Recipe tests linux: t
 - A real CMake consumer of the remaining configs (absl, TBB, GEOS, expat).
 - That `proj.db` equals the Rtools build's.
 - The cause of OpenSSL's 42 `-mcpu=` lines (S1-F12).
-- The S1-F22 fix on the hosted runner (a second PR run); why the local fake swig was not searched.
+- Why the local fake swig was not searched (S1-F22); the fix itself passed on the hosted runner (S1-F23).
 
 ## Next steps
 
-1. Open a PR from `feat-slice1` with all nine packages (the eight plus zig-zlib) and let build.yml run: toolchain, both cross legs, windows-latest and windows-11-arm test legs, alignment. Read every package line in the test step summary, not only the job status; record run ids and timings here (and adjust D72 from them).
-2. Add the `upstream-zig` label to the PR to run the gated leg (D34); record both legs' `which-zig` lines.
+1. Done (S1-F22, S1-F23): open a PR from `feat-slice1` with all nine packages (the eight plus zig-zlib) and let build.yml run: toolchain, both cross legs, windows-latest and windows-11-arm test legs, alignment. Read every package line in the test step summary, not only the job status; record run ids and timings here (and adjust D72 from them).
+2. Done (S1-F23): add the `upstream-zig` label to the PR to run the gated leg (D34); record both legs' `which-zig` lines.
 3. M4: an r-zig-pixi consumer branch (DESIGN 7) against the artifact channel: sf, terra, gdalraster and s2 install from source and pass `tests/r/smoke.R` on both arches, with DLL smokes (D20), a multi-threaded terra call, a Shapefile read, and stress rows `windows=ok`.
 4. Deferred items (D77), owner the user, before M5: one `proj.db` copy or keep both (S1-F11); pin cmake/ninja/perl/sqlite in the recipes or variants.yaml (S1-F18); json-c prefixing when a second json-c arrives (S1-F10); remove the scratch dirs in `$R` and the review scratch in `$B/review` before any upload.
