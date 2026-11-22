@@ -1,0 +1,85 @@
+# zig-expat: expat, static only, for Windows (win-64, win-arm64), cross-built
+# on linux with zig-toolchain. Installed under the private sub-prefix
+# Library/zig-libs/<zig triple>/ (D2): lib/libexpat.a,
+# include/{expat,expat_config,expat_external}.h, lib/pkgconfig/expat.pc
+# (closed, relocatable, -DXML_STATIC in Cflags), lib/cmake/expat-<v>/,
+# licenses/expat/.
+context:
+  version: ${{ expat_version }}
+  tag: R_${{ version | replace(".", "_") }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-expat
+  version: ${{ version }}
+
+source:
+  - url: https://github.com/libexpat/libexpat/releases/download/${{ tag }}/expat-${{ version }}.tar.xz
+    sha256: 71df8f40706a7bb0a80a5367079ea75d91da4f8c65c58ec59bcdfbf7decdab9f
+  # the package test (tests/pkgtest.zig, tests/smoke/expat.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    - cmake
+    - ninja
+  run_exports:
+    weak:
+      - ${{ pin_subpackage("zig-expat", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libexpat.a
+          - ${{ sub }}/include/expat.h
+          - ${{ sub }}/include/expat_config.h
+          - ${{ sub }}/include/expat_external.h
+          - ${{ sub }}/lib/pkgconfig/expat.pc
+          - ${{ sub }}/licenses/expat/COPYING
+        # static only (D3): no DLL, no import library, no MSVC-named library
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/libexpatMD.a"
+          - "**/libexpatMT.a"
+  # tests/pkgtest.zig (its header says what it checks): the relocated .pc
+  # resolves to existing paths, no absolute prefix in it, no build path in
+  # libexpat.a, and tests/smoke/expat.c links (and runs, on Windows of the
+  # same arch). One plain command for bash (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --global-cache-dir .zig-global-cache --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- ${{ zt }} expat zig-libs-tests/smoke/expat.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/expat.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+
+about:
+  homepage: https://libexpat.github.io/
+  license: MIT
+  license_file: COPYING
+  summary: expat XML parser, static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/libexpat/libexpat

@@ -19,8 +19,10 @@ zig:
 zig_toolchain:
   - "0.1.0"
 
-# Upstream versions: Rtools45 build 6768 (D9). A recipe reads its own key
-# (zlib_version, ...) in its context; only zlib is built in M0.
+# Upstream versions: Rtools45 build 6768 (D9). Each recipe reads its own
+# key (zlib_version, ...) in its context, so the version is only here; the
+# key is then in that recipe's hash. The sha256 stays in the recipe, and
+# so does sqlite's release year in its URL (sqlite.org/<year>/...).
 zlib_version:
   - "1.3.1"
 sqlite_version:

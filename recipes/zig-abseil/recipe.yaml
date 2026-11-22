@@ -1,0 +1,101 @@
+# zig-abseil: abseil-cpp LTS, static only, for Windows (win-64, win-arm64),
+# cross-built on linux with zig-toolchain (C++17, libc++). Installed under
+# the private sub-prefix Library/zig-libs/<zig triple>/ (D2):
+# lib/libabsl_*.a, include/absl/, lib/pkgconfig/absl_*.pc (abseil's own,
+# one per module; closed, relocatable), lib/cmake/absl/, licenses/abseil/.
+context:
+  # Rtools45 build 6768 (D9), variants.yaml
+  version: ${{ abseil_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-abseil
+  version: ${{ version }}
+
+source:
+  - url:
+      - https://github.com/abseil/abseil-cpp/releases/download/${{ version }}/abseil-cpp-${{ version }}.tar.gz
+      - https://github.com/abseil/abseil-cpp/archive/refs/tags/${{ version }}.tar.gz
+    sha256: 16242f394245627e508ec6bb296b433c90f8d914f73b9c026fddb905e27276e8
+    patches:
+      # zig's MinGW headers lack windows.globalization.h (the patch says why)
+      - patches/0001-cctz-mingw-without-windows-globalization-h.patch
+  # the package test (tests/pkgtest.zig, tests/smoke/abseil.cpp), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    - cmake
+    - ninja
+  run_exports:
+    weak:
+      # abseil has no ABI stability across LTS releases: exact x.x
+      - ${{ pin_subpackage("zig-abseil", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libabsl_base.a
+          - ${{ sub }}/lib/libabsl_strings.a
+          - ${{ sub }}/lib/libabsl_synchronization.a
+          - ${{ sub }}/lib/libabsl_hash.a
+          - ${{ sub }}/lib/libabsl_raw_hash_set.a
+          - ${{ sub }}/lib/libabsl_symbolize.a
+          - ${{ sub }}/include/absl/strings/str_cat.h
+          - ${{ sub }}/include/absl/container/flat_hash_map.h
+          - ${{ sub }}/include/absl/synchronization/mutex.h
+          - ${{ sub }}/lib/pkgconfig/absl_strings.pc
+          - ${{ sub }}/lib/cmake/absl/abslConfig.cmake
+          - ${{ sub }}/licenses/abseil/LICENSE
+        # static only (D3): no DLL, no import library, no MSVC-named library
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+  # tests/pkgtest.zig (its header says what it checks) over the 26 modules
+  # s2 1.1.x asks for (configure / configure.win) plus absl_random_random:
+  # the relocated .pc files resolve to existing paths, no absolute prefix in
+  # any, no build path in any archive; the closure names the Windows system
+  # libraries abseil needs (advapi32, dbghelp; bcrypt for absl_random) and
+  # no -Wnon-virtual-dtor (CRAN drops it; abseil's .pc never carries it);
+  # its archives use libc++ (--libcxx), define no C symbol twice and carry
+  # no dllexport directives; tests/smoke/abseil.cpp links with `zig c++`
+  # (and runs, on Windows of the same arch). One plain command for bash
+  # (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --global-cache-dir .zig-global-cache --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --libcxx --unique-c-symbols --no-dllexport --require -ladvapi32 --require -ldbghelp --require -lbcrypt --forbid -Wnon-virtual-dtor ${{ zt }} absl_base,absl_btree,absl_check,absl_cord,absl_core_headers,absl_dynamic_annotations,absl_flags,absl_flat_hash_map,absl_flat_hash_set,absl_hash,absl_inlined_vector,absl_int128,absl_log,absl_log_severity,absl_memory,absl_span,absl_str_format,absl_strings,absl_type_traits,absl_utility,absl_vlog_is_on,absl_status,absl_statusor,absl_synchronization,absl_time,absl_optional,absl_random_random zig-libs-tests/smoke/abseil.cpp
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/abseil.cpp
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://abseil.io/
+  license: Apache-2.0
+  license_file: LICENSE
+  summary: abseil-cpp LTS, static C++ libraries for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/abseil/abseil-cpp

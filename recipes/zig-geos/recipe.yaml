@@ -1,0 +1,92 @@
+# zig-geos: GEOS (C++ library and its C API), static only, for Windows
+# (win-64, win-arm64), cross-built on linux with zig-toolchain, libc++ as
+# zig links it. Installed under the private sub-prefix
+# Library/zig-libs/<zig triple>/ (D2): lib/libgeos.a, lib/libgeos_c.a,
+# include/{geos_c.h,geos.h,geos/}, lib/pkgconfig/geos.pc (closed,
+# relocatable: -lgeos_c -lgeos -lc++), lib/cmake/GEOS/, licenses/geos/.
+# No geos-config: on Windows sf and terra ask `pkg-config --libs gdal geos
+# proj` (Makevars.ucrt); geos-config is read only by their unix configure.
+context:
+  version: ${{ geos_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-geos
+  version: ${{ version }}
+
+source:
+  - url: https://download.osgeo.org/geos/geos-${{ version }}.tar.bz2
+    sha256: 3c20919cda9a505db07b5216baa980bacdaa0702da715b43f176fb07eff7e716
+  # the package tests (tests/pkgtest.zig, tests/smoke/geos.{c,cpp}), for
+  # tests.files below; the build does not use them
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    - cmake
+    - ninja
+  run_exports:
+    weak:
+      # GEOS's C++ API changes between minor versions (DESIGN 5.9)
+      - ${{ pin_subpackage("zig-geos", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libgeos.a
+          - ${{ sub }}/lib/libgeos_c.a
+          - ${{ sub }}/include/geos_c.h
+          - ${{ sub }}/include/geos/geom/GeometryFactory.h
+          - ${{ sub }}/lib/pkgconfig/geos.pc
+          - ${{ sub }}/licenses/geos/COPYING
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library; no geos-config shell script
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/bin/geos-config"
+  # tests/pkgtest.zig (its header says what it checks): the relocated .pc
+  # resolves to existing paths, no absolute prefix in it, no build path in
+  # the archives, and the C and the C++ smoke link through `pkgconf --libs
+  # geos` alone (and run, on Windows of the same arch). The C++ runtime is
+  # spelled -lc++ (as proj.pc, gdal.pc); the archives use libc++
+  # (--libcxx) and carry no dllexport directives. One plain command for
+  # bash (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --global-cache-dir .zig-global-cache --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --libcxx --no-dllexport --require -lc++ --forbid -lstdc++ ${{ zt }} geos zig-libs-tests/smoke/geos.c zig-libs-tests/smoke/geos.cpp
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/geos.c
+        - zig-libs-tests/smoke/geos.cpp
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://libgeos.org/
+  license: LGPL-2.1-or-later
+  license_file: COPYING
+  summary: GEOS geometry engine, static C/C++ library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/libgeos/geos

@@ -1,0 +1,126 @@
+# zig-gdal: GDAL (C/C++ library), static only, for Windows (win-64,
+# win-arm64), cross-built on linux with zig-toolchain, libc++ as zig links
+# it. PROJ, GEOS, SQLite, expat and zlib from the zig-* host packages;
+# every other library GDAL can use is its internal copy or off (DESIGN 6.3:
+# GDAL_USE_EXTERNAL_LIBS=OFF, GDAL_USE_INTERNAL_LIBS=ON; all built-in
+# drivers). Installed under the private sub-prefix
+# Library/zig-libs/<zig triple>/ (D2): lib/libgdal.a, include/ (gdal.h,
+# ogr_api.h, cpl_*.h, ...), lib/pkgconfig/gdal.pc (closed, relocatable:
+# Requires proj geos sqlite3 expat zlib, -lgdal -lc++ and the Windows
+# system libraries), share/gdal/ (which sf, terra and gdalraster copy),
+# licenses/gdal/. The resource files are also embedded in the archive
+# (EMBED_RESOURCE_FILES=ON, D16), so GDAL works without GDAL_DATA.
+context:
+  version: ${{ gdal_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-gdal
+  version: ${{ version }}
+
+source:
+  # sha256 as MXE's gdal.mk (Rtools45 6768); md5
+  # b8a7225d1c3115b6041530dddd4f1541 as gdal-3.12.1.tar.xz.md5 on
+  # download.osgeo.org states
+  - url: https://download.osgeo.org/gdal/${{ version }}/gdal-${{ version }}.tar.xz
+    sha256: 2a4fd3170ff81def93db60f7f61f2842a2ae7ad0335e4ed4ba305252f05835de
+    patches:
+      # no install prefix compiled into libgdal.a (INST_DATA, SYSCONFDIR,
+      # INSTALL_PLUGIN_FULL_DIR, GDAL_PREFIX): it would be the
+      # rattler-build host prefix, a build path (D22), and wrong after
+      # install; GDAL finds its data through GDAL_DATA or the embedded
+      # resources
+      - 0001-no-install-paths-compiled-in.patch
+  # the package test (tests/pkgtest.zig, tests/smoke/gdal.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    - cmake
+    - ninja
+  host:
+    - zig-proj
+    - zig-geos
+    - zig-sqlite
+    - zig-expat
+    - zig-zlib
+  run_exports:
+    weak:
+      # GDAL's C++ API and driver ABI change between minor versions
+      # (DESIGN 5.9)
+      - ${{ pin_subpackage("zig-gdal", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libgdal.a
+          - ${{ sub }}/include/gdal.h
+          - ${{ sub }}/include/ogr_api.h
+          - ${{ sub }}/include/ogr_srs_api.h
+          - ${{ sub }}/include/cpl_config.h
+          - ${{ sub }}/include/gdal_priv.h
+          - ${{ sub }}/lib/pkgconfig/gdal.pc
+          - ${{ sub }}/share/gdal/gdalvrt.xsd
+          - ${{ sub }}/share/gdal/header.dxf
+          - ${{ sub }}/share/gdal/gml_registry.xml
+          - ${{ sub }}/licenses/gdal/LICENSE.TXT
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library; no programs or scripts (BUILD_APPS=OFF, gdal-config)
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.exe"
+          - "**/bin/**"
+          - "**/share/bash-completion/**"
+          - "**/lib/gdalplugins/**"
+          # gdal.pc is the interface (DESIGN 5.5)
+          - "**/lib/cmake/gdal/**"
+  # tests/pkgtest.zig (its header says what it checks): the relocated .pc
+  # and its Requires closure resolve to existing paths, no absolute prefix
+  # in any .pc, no build path in any archive, and tests/smoke/gdal.c (GPKG,
+  # GTiff in /vsimem/, GeoJSON, OSR) links through `pkgconf --libs gdal`
+  # alone (and runs, on Windows of the same arch, with the embedded
+  # resources and proj.db). Over the link closure (libgdal.a, libproj.a,
+  # libgeos*.a, libsqlite3.a, libexpat.a, libz.a): libc++ only
+  # (--libcxx; the .pc closure spells it -lc++ only), no C symbol defined
+  # in two archives (--unique-c-symbols: no internal copy of a zig-*
+  # library), no dllexport directives. One plain command for bash (linux)
+  # and cmd.exe (Windows).
+  - script:
+      - zig run --global-cache-dir .zig-global-cache --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --libcxx --unique-c-symbols --no-dllexport --forbid -lstdc++ ${{ zt }} gdal zig-libs-tests/smoke/gdal.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/gdal.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://gdal.org/
+  license: MIT
+  license_file: LICENSE.TXT
+  summary: GDAL geospatial data abstraction library, static C/C++ library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/OSGeo/gdal

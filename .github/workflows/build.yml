@@ -1,10 +1,11 @@
 name: build
 
-# Milestone M0's CI (DESIGN.md 9.1, .github/devdocs/m0/PLAN.md):
+# The CI of milestone M0 and slice 1 (DESIGN.md 9.1, .github/devdocs/m0/PLAN.md):
 #
 #   plan        the legs: default, plus upstream-zig when gated
 #   toolchain   zig-toolchain for linux-64 into a local channel, per leg
-#   cross       every library recipe for win-64 and win-arm64 on linux
+#   cross       every library recipe (zig-zlib ... zig-gdal, the build-libs
+#               list in pixi.toml) for win-64 and win-arm64 on linux
 #               (pixi run build-libs; its recipe tests run there too)
 #   test        each package's tests on windows-latest (win-64) and
 #               windows-11-arm (win-arm64): rattler-build test
@@ -146,7 +147,10 @@ jobs:
     # the artifact download)
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # all nine recipes for one subdir took 1150 s on a 16-core host (19 min;
+    # GDAL alone 365 s); ubuntu-latest has 4 cores, so about 4x that, with
+    # headroom
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
@@ -198,7 +202,7 @@ jobs:
     # only its own test leg (at the artifact download), not all of them
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -233,20 +237,33 @@ jobs:
           name: channel-${{ matrix.subdir }}-${{ matrix.env }}
           path: channel
       # Each package's stored tests (recipes/*/recipe.yaml `tests:`): for a
-      # library, tests/pkgtest.zig, run with this subdir's conda-forge zig
-      # and pkgconf, which links tests/smoke/<lib>.c with `pkgconf --libs`
-      # of the installed package and runs it. The step timeout catches a
-      # hung process spawn (r-zig-pixi's windows-latest MSYS flake).
+      # library, tests/pkgtest.zig, run with this subdir's conda-forge zig,
+      # pkgconf (and llvm-tools for the C++ libraries), which links the
+      # smoke sources with `pkgconf --cflags --libs` of the installed
+      # package and its zig-* dependencies (from the same channel) and runs
+      # them. Every package of the build-libs list (pixi.toml) is tested,
+      # also after a failure; the step fails if any did. The step timeout
+      # catches a hung process spawn (r-zig-pixi's windows-latest MSYS
+      # flake).
       - name: rattler-build test each package
-        timeout-minutes: 20
+        timeout-minutes: 45
         run: |
           chan="file:///$(cygpath -m "$PWD")/channel"
+          failed=() n=0
           for f in channel/"$SUBDIR"/*.conda; do
+            n=$((n + 1))
             echo "::group::rattler-build test $f"
-            pixi exec --spec "rattler-build==$RATTLER_BUILD_VERSION" -- \
-              rattler-build test --package-file "$f" -c "$chan" -c conda-forge
+            if pixi exec --spec "rattler-build==$RATTLER_BUILD_VERSION" -- \
+              rattler-build test --package-file "$f" -c "$chan" -c conda-forge; then
+              r=ok
+            else
+              r=FAIL failed+=("$f")
+            fi
             echo "::endgroup::"
+            echo "- \`$(basename "$f")\`: $r" >> "$GITHUB_STEP_SUMMARY"
           done
+          echo "$n package(s) tested, ${#failed[@]} failed: ${failed[*]}"
+          [ "$n" -gt 0 ] && [ "${#failed[@]}" -eq 0 ]
 
   alignment:
     name: build-number alignment

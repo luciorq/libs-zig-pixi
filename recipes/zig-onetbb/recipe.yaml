@@ -1,0 +1,97 @@
+# zig-onetbb: oneTBB (the tbb library only), static, for Windows (win-64,
+# win-arm64), cross-built on linux with zig-toolchain. Installed under the
+# private sub-prefix Library/zig-libs/<zig triple>/ (D2): lib/libtbb12.a
+# (terra links -ltbb12), include/{tbb,oneapi}, lib/pkgconfig/tbb.pc
+# (closed, relocatable), licenses/onetbb/.
+#
+# Static oneTBB has no DllMain: a consumer DLL gets no DLL_THREAD_DETACH /
+# DLL_PROCESS_DETACH cleanup of TBB's threads (upstream calls a static
+# build unsupported; CRAN ships one anyway). oneTBB registers a
+# thread_local destructor for external threads instead (governor.cpp);
+# unloading a DLL while TBB worker threads still run is not safe.
+context:
+  # Rtools45 build 6768 (D9), variants.yaml
+  version: ${{ onetbb_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-onetbb
+  version: ${{ version }}
+
+source:
+  - url: https://github.com/uxlfoundation/oneTBB/archive/refs/tags/v${{ version }}.tar.gz
+    sha256: f0f78001c8c8edb4bddc3d4c5ee7428d56ae313254158ad1eec49eced57f6a5b
+    patches:
+      # CRAN's intel-tbb-1-msys2-fixes.patch (its header says what it does)
+      - patches/onetbb-msys2-fixes.patch
+      # static build: no __declspec(dllexport) (the patch says why)
+      - patches/0002-static-build-exports-nothing.patch
+  # the package test (tests/pkgtest.zig, tests/smoke/onetbb.cpp), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    - cmake
+    - ninja
+  run_exports:
+    weak:
+      - ${{ pin_subpackage("zig-onetbb", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libtbb12.a
+          - ${{ sub }}/include/tbb/tbb.h
+          - ${{ sub }}/include/oneapi/tbb.h
+          - ${{ sub }}/include/oneapi/tbb/parallel_for.h
+          - ${{ sub }}/lib/pkgconfig/tbb.pc
+          - ${{ sub }}/licenses/onetbb/LICENSE.txt
+        # static only (D3): no DLL, no import library, no MSVC-named library
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - ${{ sub }}/lib/libtbbmalloc*.a
+  # tests/pkgtest.zig (its header says what it checks): the relocated tbb.pc
+  # resolves to existing paths, no absolute prefix in it, no build path in
+  # libtbb12.a, libc++ symbols only (--libcxx), no -export: directive in any
+  # object (--no-dllexport; patch 0002), and tests/smoke/onetbb.cpp links
+  # with `zig c++` and pkgconf (and runs, on Windows of the same arch). One
+  # plain command for bash (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --global-cache-dir .zig-global-cache --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --libcxx --no-dllexport ${{ zt }} tbb zig-libs-tests/smoke/onetbb.cpp
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/onetbb.cpp
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://uxlfoundation.github.io/oneTBB/
+  license: Apache-2.0
+  license_file: LICENSE.txt
+  summary: oneTBB (tbb only), static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/uxlfoundation/oneTBB
