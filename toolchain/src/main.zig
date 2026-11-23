@@ -11,7 +11,7 @@
 //!   <triple>-rc                 zig rc /:target <arch> <args> (rc.exe's options)
 //!   <triple>-strip              a no-op, exit 0 (objects are built with -g0;
 //!                               `cmake --install --strip` stays harmless)
-//!   <triple>-{nm,objdump,objcopy,readelf,addr2line,ld}
+//!   <triple>-{nm,objdump,objcopy,readelf,addr2line,ld,as}
 //!                               an error, exit 1: zig has none of these for
 //!                               COFF. They exist so that the CMake toolchain
 //!                               files can name them and CMake never falls
@@ -23,6 +23,11 @@
 //!
 //! Called as zig-toolchain:
 //!   zig-toolchain close-pc [--libs "<words>"] <file.pc>...   (closepc.zig)
+//!   zig-toolchain configure <configure script> [args...]     an autotools cross
+//!                                                             configure for the
+//!                                                             activation's target,
+//!                                                             host tools fenced off
+//!                                                             (configure.zig)
 //!   zig-toolchain check-alignment [--expect <subdir>,...] [--published <channel>] <dir>...
 //!                                                             one build number per package
 //!                                                             across subdirs, compared with
@@ -48,8 +53,9 @@ const flags = @import("flags.zig");
 const binutils = @import("binutils.zig");
 const closepc = @import("closepc.zig");
 const alignment = @import("alignment.zig");
+const configure = @import("configure.zig");
 
-pub const version = "0.1.0";
+pub const version = "0.2.0";
 
 const Tool = enum {
     cc,
@@ -69,14 +75,14 @@ const Tool = enum {
             .{ "dlltool", .dlltool },     .{ "windres", .windres },     .{ "rc", .rc },
             .{ "strip", .strip },         .{ "nm", .unsupported },      .{ "objdump", .unsupported },
             .{ "objcopy", .unsupported }, .{ "readelf", .unsupported }, .{ "addr2line", .unsupported },
-            .{ "ld", .unsupported },
+            .{ "ld", .unsupported },      .{ "as", .unsupported },
         });
         return map.get(name);
     }
 };
 
 /// The names this binary is installed under (recipes/zig-toolchain).
-pub const tool_names = [_][]const u8{ "cc", "c++", "ar", "ranlib", "dlltool", "windres", "rc", "strip", "nm", "objdump", "objcopy", "readelf", "addr2line", "ld" };
+pub const tool_names = [_][]const u8{ "cc", "c++", "ar", "ranlib", "dlltool", "windres", "rc", "strip", "nm", "objdump", "objcopy", "readelf", "addr2line", "ld", "as" };
 
 const Call = struct { target: target.Target, tool: Tool, name: []const u8 };
 
@@ -98,6 +104,7 @@ const usage_text =
     \\usage: <triple>-{cc,c++,ar,ranlib,dlltool,windres,rc,strip} [args...]
     \\       zig-toolchain <triple>-<tool> [args...]
     \\       zig-toolchain close-pc [--libs "<words>"] <file.pc>...
+    \\       zig-toolchain configure <configure script> [args...]
     \\       zig-toolchain check-alignment [--expect <subdir>,...] [--published <channel>] <dir>...
     \\       zig-toolchain pe-machine <file>...
     \\       zig-toolchain version
@@ -122,6 +129,7 @@ pub fn main(init: std.process.Init) !u8 {
     const sub = args[1];
     if (mem.eql(u8, sub, "close-pc")) return closepc.run(io, a, args[2..]);
     if (mem.eql(u8, sub, "check-alignment")) return alignment.run(io, a, args[2..]);
+    if (mem.eql(u8, sub, "configure")) return configure.run(io, a, init.environ_map, zigPath(init.environ_map), args[2..]);
     if (mem.eql(u8, sub, "pe-machine")) return peMachine(io, a, args[2..]);
     if (mem.eql(u8, sub, "tools")) {
         for (tool_names) |n| {
@@ -261,6 +269,7 @@ test {
     _ = binutils;
     _ = closepc;
     _ = alignment;
+    _ = configure;
 }
 
 test "names" {

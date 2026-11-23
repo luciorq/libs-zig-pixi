@@ -31,7 +31,7 @@ source:
     target_directory: recipes/zig-sqlite
 
 build:
-  number: 0
+  number: 1
   string: zig_${{ hash }}_${{ build_number }}
   script:
     file: build.sh

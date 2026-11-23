@@ -16,8 +16,10 @@ they differ from this summary.
   relation, so a consumer lists it before conda-forge (DESIGN.md 2).
 - Names: `zig-<upstream name>` (CONVENTIONS.md). Built today for win-64
   and win-arm64: zig-zlib, zig-sqlite, zig-expat, zig-openssl,
-  zig-abseil, zig-onetbb, zig-geos, zig-proj, zig-gdal. `zig-toolchain`
-  (linux-64) is the build tool, not for consumers.
+  zig-abseil, zig-onetbb, zig-geos, zig-proj, zig-gdal; from slice 2
+  batch 1 (slice2/PLAN.md) also zig-gmp (with gmpxx), zig-mpfr,
+  zig-glpk. `zig-toolchain` (linux-64) is the build tool, not for
+  consumers.
 - Only published builds are part of the contract. A consumer never
   depends on a libs-zig-pixi CI artifact (r-zig-pixi PR #52 removed
   `--libs-channel`).
@@ -45,6 +47,12 @@ they differ from this summary.
   `PROJ_DATA` or `GDAL_DATA`; `share/` is for consumers that copy it
   (r-zig-pixi's `R_TOOLS_SOFT`, section 6).
 - No install prefix is compiled into the archives.
+- `libglpk.a` defines `DllMain` (GLPK's Windows code, as CRAN's Rtools45
+  archive; slice2/PLAN.md S2-F12, D110): a DLL that links zig-glpk gets
+  GLPK's `DllMain` as its entry point, and one that defines its own gets
+  a duplicate-symbol error. No other zig-* archive defines `DllMain`.
+- `.pc` files the upstream build does not install are written by the
+  recipe (zig-glpk's `glpk.pc`, which upstream lacks).
 
 ## 3. pkg-config files
 
@@ -94,6 +102,11 @@ Written by `zig-toolchain close-pc` (toolchain/src/closepc.zig):
 Owned by r-zig-pixi; listed so the producer knows what a change can
 break. Windows only; unix never looks for zig-libs.
 
+This section describes r-zig-pixi main. The first r-zig build that carries
+it is 12 (unpublished as of 2026-11-23); build 11 on universe (4.6.2
+`hc365614_11`) predates it and never looks in zig-libs (slice2/PLAN.md
+S2-F13).
+
 - rzig (`zigbuild/tools/rzig/environment.zig`), environment order: R's
   own env's `zig-libs/<triple>` (when it exists), R's env, the
   toolchain's `openmp/` (when R's env has libomp), `R_ZIG_EXTRA_ENV`'s
@@ -131,7 +144,10 @@ a `.pc` names is in `lib/`.
 - libs-zig-pixi verifies a build before it is published: recipe tests
   and `tests/pkgtest.zig` on linux and on Windows of both arches, and
   (from slice 2 on, DESIGN.md 9.1 item 4) R packages built from source
-  against the new packages with r-zig from universe (`tests/r/smoke.R`).
+  against the new packages with r-zig from universe: the `r-consumer`
+  job (build.yml; slice2/PLAN.md D113), `tests/r/install.R` then
+  `tests/r/smoke.R` (sf, terra, gdalraster, s2, gmp, Rmpfr, igraph; sf on
+  win-64 only until zig-udunits2). The publish job needs it.
 - r-zig-pixi verifies the published builds in its stress suite after it
   updates its lock, and reports anything that breaks this contract to
   libs-zig-pixi.

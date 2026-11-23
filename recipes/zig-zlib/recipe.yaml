@@ -22,7 +22,7 @@ source:
     target_directory: zig-libs-tests
 
 build:
-  number: 0
+  number: 1
   string: zig_${{ hash }}_${{ build_number }}
   script:
     file: build.sh

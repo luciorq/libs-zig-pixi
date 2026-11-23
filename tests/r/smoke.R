@@ -1,11 +1,12 @@
 # Smoke test of the R packages that link the zig-* libraries (DESIGN 9.2,
-# M4): sf, terra, gdalraster, s2. Run it with the R that installed them:
-#   Rscript tests/r/smoke.R [package ...]      (default: all four)
+# M4; slice 2 adds gmp, Rmpfr, igraph): sf, terra, gdalraster, s2, gmp,
+# Rmpfr, igraph. Run it with the R that installed them:
+#   Rscript tests/r/smoke.R [package ...]      (default: all of them)
 # Each check prints one "SMOKE <name> PASS|FAIL|ERROR" line; the script
 # exits with status 1 when any check is not PASS. First run: kappa win-64,
 # 2026-11-22 (r-zig-pixi feat-zig-libs PLAN.md).
 args <- commandArgs(trailingOnly = TRUE)
-pkgs <- if (length(args)) args else c("sf", "terra", "gdalraster", "s2")
+pkgs <- if (length(args)) args else c("sf", "terra", "gdalraster", "s2", "gmp", "Rmpfr", "igraph")
 
 res <- character()
 chk <- function(name, expr) {
@@ -131,6 +132,53 @@ if ("s2" %in% pkgs) {
   })
   chk("s2: countries union", {
     s2_area(s2_union_agg(s2_data_countries(c("France", "Germany", "Belgium")))) > 8e11
+  })
+}
+
+# slice 2 batch 1: zig-gmp (gmp, Rmpfr, igraph), zig-mpfr (Rmpfr),
+# zig-glpk (igraph's cluster_optimal, GLPK's exact MIP)
+if ("gmp" %in% pkgs) {
+  library(gmp)
+  chk("gmp: factorialZ(30)", {
+    as.character(factorialZ(30)) == "265252859812191058636308480000000"
+  })
+  chk("gmp: isprime(2^127 - 1)", {
+    isprime(as.bigz(2)^127 - 1) > 0 && isprime(as.bigz(2)^127 + 1) == 0
+  })
+  chk("gmp: bigq 1/3 + 1/6", {
+    as.character(as.bigq(1, 3) + as.bigq(1, 6)) == "1/2"
+  })
+}
+
+if ("Rmpfr" %in% pkgs) {
+  suppressPackageStartupMessages(library(Rmpfr))
+  chk("Rmpfr: pi to 200 bits", {
+    startsWith(formatMpfr(Const("pi", 200), digits = 50), "3.14159265358979323846264338327950288419716939937")
+  })
+  chk("Rmpfr: mpfr(1, 100) / 3", {
+    x <- mpfr(1, 100) / 3
+    getPrec(x) == 100 && abs(as.numeric(x * 3) - 1) < 1e-15
+  })
+}
+
+if ("igraph" %in% pkgs) {
+  suppressPackageStartupMessages(library(igraph))
+  chk("igraph: ring vcount/ecount", {
+    g <- make_ring(10)
+    vcount(g) == 10 && ecount(g) == 10
+  })
+  chk("igraph: cluster_optimal (GLPK)", {
+    # two triangles joined by one edge: the optimal partition is the two
+    # triangles; cluster_optimal solves an integer program with GLPK
+    g <- graph_from_literal(A - B - C - A, D - E - F - D, C - D)
+    m <- membership(cluster_optimal(g))
+    length(unique(m)) == 2 && m[["A"]] == m[["B"]] && m[["D"]] == m[["F"]] && m[["A"]] != m[["D"]]
+  })
+  chk("igraph: GraphML round trip (libxml2)", {
+    f <- tempfile(fileext = ".graphml")
+    write_graph(make_star(5), f, format = "graphml")
+    g <- read_graph(f, format = "graphml")
+    vcount(g) == 5 && ecount(g) == 4
   })
 }
 

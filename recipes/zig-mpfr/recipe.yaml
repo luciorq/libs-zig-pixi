@@ -1,0 +1,99 @@
+# zig-mpfr: GNU MPFR, static only, for Windows (win-64, win-arm64),
+# cross-built on linux with zig-toolchain through MPFR's own autotools
+# configure (D1), run by `zig-toolchain configure` (slice2 D104), on
+# zig-gmp. Thread-safe (TLS). Installed under the private sub-prefix
+# Library/zig-libs/<zig triple>/ (D2): lib/libmpfr.a,
+# include/{mpfr,mpf2mpfr}.h, lib/pkgconfig/mpfr.pc (closed, relocatable,
+# Requires: gmp), licenses/mpfr/.
+context:
+  # Rtools45 build 6768 (slice2 S2-F1), variants.yaml
+  version: ${{ mpfr_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-mpfr
+  version: ${{ version }}
+
+source:
+  - url:
+      - https://ftp.gnu.org/gnu/mpfr/mpfr-${{ version }}.tar.xz
+      - https://www.mpfr.org/mpfr-${{ version }}/mpfr-${{ version }}.tar.xz
+    sha256: b67ba0383ef7e8a8563734e2e889ef5ec3c3b898a01d00fa0a6869ad81c6ce01
+  # the package test (tests/pkgtest.zig, tests/smoke/mpfr.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # configure and make; exact: puts make and llvm_tools in the hash
+    # (variants.yaml). llvm-nm is configure's NM (zig-toolchain configure).
+    - make ==${{ make }}
+    - llvm-tools ==${{ llvm_tools }}
+  host:
+    - zig-gmp
+  run_exports:
+    weak:
+      - ${{ pin_subpackage("zig-mpfr", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libmpfr.a
+          - ${{ sub }}/include/mpfr.h
+          - ${{ sub }}/include/mpf2mpfr.h
+          - ${{ sub }}/lib/pkgconfig/mpfr.pc
+          - ${{ sub }}/licenses/mpfr/COPYING
+          - ${{ sub }}/licenses/mpfr/COPYING.LESSER
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library; no libtool archives, docs or info pages
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.la"
+          - ${{ sub }}/share/**
+  # tests/pkgtest.zig (its header says what it checks): mpfr.pc pulls
+  # zig-gmp's gmp.pc through Requires; the relocated .pc resolves to
+  # existing paths, no absolute prefix in it, no build path in the
+  # archives, no C symbol defined in both libmpfr.a and libgmp.a, no
+  # dllexport directive, and tests/smoke/mpfr.c links (and runs, on Windows
+  # of the same arch: pi, thread-safe, header = library). One plain command
+  # for bash (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --global-cache-dir .zig-global-cache --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -lgmp ${{ zt }} mpfr zig-libs-tests/smoke/mpfr.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/mpfr.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://www.mpfr.org/
+  license: LGPL-3.0-or-later
+  license_file:
+    - COPYING
+    - COPYING.LESSER
+  summary: GNU MPFR, static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://gitlab.inria.fr/mpfr/mpfr
