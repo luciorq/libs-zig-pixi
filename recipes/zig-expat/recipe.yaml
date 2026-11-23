@@ -39,8 +39,9 @@ requirements:
     # exact: puts zig_toolchain in the hash (variants.yaml)
     - zig-toolchain ==${{ zig_toolchain }}
     - zig ==${{ zig }}
-    - cmake
-    - ninja
+    # exact: puts cmake and ninja in the hash (variants.yaml)
+    - cmake ==${{ cmake }}
+    - ninja ==${{ ninja }}
   run_exports:
     weak:
       - ${{ pin_subpackage("zig-expat", upper_bound="x.x") }}

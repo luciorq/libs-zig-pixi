@@ -64,9 +64,9 @@ depends-on = [
 # directly, so its exit codes (0 aligned, 1 problem, 2 usage) and a log
 # without build-runner lines reach the caller (D42).
 [tasks.check-alignment]
-description = "zig-toolchain check-alignment over <dirs> (default $LIBS_ZIG_OUT)"
-args = [{ arg = "dirs", default = "$LIBS_ZIG_OUT" }]
-cmd = "zig build --build-file toolchain/build.zig --prefix toolchain/zig-out && toolchain/zig-out/bin/zig-toolchain check-alignment --expect win-64,win-arm64 {{ dirs }}"
+description = "zig-toolchain check-alignment over <dirs> (default $LIBS_ZIG_OUT), compared with the <published> channel (default universe; a URL or a channel dir)"
+args = [{ arg = "dirs", default = "$LIBS_ZIG_OUT" }, { arg = "published", default = "https://prefix.dev/universe" }]
+cmd = "zig build --build-file toolchain/build.zig --prefix toolchain/zig-out && toolchain/zig-out/bin/zig-toolchain check-alignment --expect win-64,win-arm64 --published={{ published }} {{ dirs }}"
 
 [tasks.test]
 description = "Re-run a built package's tests (the parts that run on linux)"

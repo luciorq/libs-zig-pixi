@@ -19,6 +19,30 @@ zig:
 zig_toolchain:
   - "0.1.0"
 
+# Build tools from conda-forge that shape a package's files: exact, and
+# each recipe that runs one requires `<tool> ==${{ <key> }}`, so the key is
+# in that recipe's hash. Unpinned, a new tool version could change a
+# package (CMake/Ninja: generated build, flags, install layout; perl and
+# make: OpenSSL's Configure and Makefile; sqlite: the sqlite3 shell that
+# writes zig-proj's proj.db) under an unchanged build string, and
+# --skip-existing would keep the old one (DESIGN R15, slice1 PLAN S1-F18).
+# A bump here rebuilds the recipes that use the key and bumps their build
+# numbers (as D4 does for zig). The versions are the ones the build that
+# preceded the first publish resolved (CI run 44984149674, all four cross
+# legs). The test-only tools (pkgconf, llvm-tools in tests.requirements)
+# stay unpinned: they do not touch the package's files, and a new version
+# shows up as a test result, not a stale package.
+cmake:
+  - "4.5.1"
+ninja:
+  - "1.13.2"
+perl:
+  - "5.44.0"
+make:
+  - "4.4.1"
+sqlite:
+  - "3.54.1"
+
 # Upstream versions: Rtools45 build 6768 (D9). Each recipe reads its own
 # key (zlib_version, ...) in its context, so the version is only here; the
 # key is then in that recipe's hash. The sha256 stays in the recipe, and

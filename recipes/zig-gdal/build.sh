@@ -22,7 +22,18 @@ echo "zig-gdal: ZIG_BIN='${zig_bin}' zig version: $v ($(command -v "${zig_bin:-z
 # off; programs are found on the build host (FIND_ROOT_PATH_MODE_PROGRAM
 # NEVER), so a host swig leaked SWIG_DIR=/usr/share/swig/... into the
 # cache on the hosted runner (slice1 PLAN S1-F22). Not looked for at all.
+# The same for the runner's pkg-config and bison (m5 PLAN M5-F23, D97).
+# bison serves only the parser-regeneration targets (generate_swq_parser,
+# generate_ods_formula_parser), which are not in ALL; the generated parsers
+# are in the source tree. pkg-config cannot be disabled the same way:
+# FindEXPAT, FindZSTD and Findmuparser call pkg_check_modules without
+# checking PKG_CONFIG_FOUND, and with PkgConfig disabled that command does
+# not exist. An empty PKG_CONFIG_EXECUTABLE skips the search and leaves
+# pkg_check_modules defined and finding nothing; the libraries are found in
+# the sub-prefix through the toolchain file's root path, as before.
 cmake -S . -B _build ${CMAKE_ARGS} \
+  -DPKG_CONFIG_EXECUTABLE= \
+  -DCMAKE_DISABLE_FIND_PACKAGE_BISON=ON \
   -DBUILD_APPS=OFF \
   -DBUILD_TESTING=OFF \
   -DBUILD_PYTHON_BINDINGS=OFF \
