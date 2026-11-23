@@ -1,11 +1,14 @@
-//! `zig-toolchain check-alignment [--expect <subdir>,...] <dir>...`: one
-//! build number per package across subdirs (CONVENTIONS.md "Versions and
-//! build numbers", DESIGN 5.2) over channels built locally or in one CI run.
-//! It covers part of flang-pixi's scripts/check-build-alignment.py: that
-//! script also compares with the published universe channel and with
-//! declared release numbers, which is what catches --skip-existing keeping
-//! stale subdirs (DESIGN R15). That comparison is not here yet (M0-F22;
-//! planned before M5: a channel-URL input).
+//! `zig-toolchain check-alignment [--expect <subdir>,...] [--published
+//! <channel>] <dir>...`: one build number per package across subdirs
+//! (CONVENTIONS.md "Versions and build numbers", DESIGN 5.2) over channels
+//! built locally or in one CI run.
+//! With --published it also compares them with a published channel: a
+//! build number below the published one, and two builds under one number
+//! (DESIGN R15, m0 D45, M0-F22). A rebuild under an already published file
+//! name shows only as `skip`: the build string carries the variant hash,
+//! not the recipe, so a recipe change without a bump looks the same (R15
+//! stays partly open, m5 PLAN). flang-pixi's scripts/check-build-alignment.py also checks
+//! declared release numbers; that part is not here.
 //!
 //! Each <dir> is a conda subdir (it holds repodata.json) or a channel root
 //! (its child directories that hold a repodata.json are the subdirs). The
@@ -24,6 +27,21 @@
 //!      package found only outside the expected subdirs (zig-toolchain in
 //!      linux-64) is checked by rule 1 alone.
 //! Prints one table row per package and version, then the problems.
+//!
+//! --published <channel>: a channel URL (http:// or https://; a plain GET
+//! of <channel>/<subdir>/repodata.json, no key, redirects followed) or a
+//! channel directory, read for every subdir that has packages in the
+//! inputs. A subdir the channel does not have (HTTP 404, no file) counts as
+//! empty; the channel itself must exist (a URL must serve noarch). Rules,
+//! per subdir, package name and version, for the newest local build
+//! number:
+//!   3. it is not below the newest published build number;
+//!   4. when that number is published, it is published as the same file
+//!      (the same build string). Then the upload skips it: `published`, or
+//!      `skip` when the published sha256 differs (a rebuild; the channel
+//!      keeps the published file). The same number under another build
+//!      string is a problem: two builds with one number.
+//! Prints a second table, one row per subdir, package and version.
 //! Exit 0 when aligned, 1 on any problem or unreadable input, 2 on usage.
 const std = @import("std");
 const mem = std.mem;
@@ -35,6 +53,9 @@ pub const Record = struct {
     version: []const u8,
     build_number: u64,
     file: []const u8,
+    /// the build string and sha256 when the index has them
+    build: []const u8 = "",
+    sha256: []const u8 = "",
 };
 
 pub const LoadError = error{ BadRepodata, OutOfMemory };
@@ -53,7 +74,9 @@ fn str(v: std.json.Value) ?[]const u8 {
 
 /// The records of one repodata.json. The subdir is its info.subdir, else
 /// `fallback_subdir` (the directory's name). `files` gets every file name
-/// the index lists.
+/// the index lists. The v3 section (records with flags or extra_depends)
+/// keys a record by its name without extension, under "conda" or
+/// "tar.bz2".
 pub fn parseRepodata(
     a: mem.Allocator,
     text: []const u8,
@@ -70,23 +93,50 @@ pub fn parseRepodata(
     };
     for ([_][]const u8{ "packages", "packages.conda" }) |section| {
         const pkgs = root.object.get(section) orelse continue;
-        if (pkgs != .object) return fail("{s}: \"{s}\" is not an object", .{ subdir, section });
-        var it = pkgs.object.iterator();
-        while (it.next()) |e| {
-            const file = e.key_ptr.*;
-            const obj = e.value_ptr.*;
-            if (obj != .object) return fail("{s}/{s}: record is not an object", .{ subdir, file });
-            const name = str(obj.object.get("name") orelse .null) orelse return fail("{s}/{s}: no name", .{ subdir, file });
-            const version = str(obj.object.get("version") orelse .null) orelse return fail("{s}/{s}: no version", .{ subdir, file });
-            const bn: u64 = switch (obj.object.get("build_number") orelse .null) {
-                .integer => |n| if (n >= 0) @intCast(n) else return fail("{s}/{s}: negative build_number", .{ subdir, file }),
-                else => return fail("{s}/{s}: no build_number", .{ subdir, file }),
-            };
-            try records.append(a, .{ .subdir = subdir, .name = name, .version = version, .build_number = bn, .file = file });
-            try files.append(a, file);
+        try parseSection(a, subdir, section, pkgs, "", records, files);
+    }
+    if (root.object.get("v3")) |v3| {
+        if (v3 != .object) return fail("{s}: \"v3\" is not an object", .{subdir});
+        for ([_][]const u8{ "conda", "tar.bz2" }) |ext| {
+            const pkgs = v3.object.get(ext) orelse continue;
+            try parseSection(a, subdir, "v3", pkgs, try std.fmt.allocPrint(a, ".{s}", .{ext}), records, files);
         }
     }
     return subdir;
+}
+
+fn parseSection(
+    a: mem.Allocator,
+    subdir: []const u8,
+    section: []const u8,
+    pkgs: std.json.Value,
+    ext: []const u8,
+    records: *std.ArrayList(Record),
+    files: *std.ArrayList([]const u8),
+) LoadError!void {
+    if (pkgs != .object) return fail("{s}: \"{s}\" is not an object", .{ subdir, section });
+    var it = pkgs.object.iterator();
+    while (it.next()) |e| {
+        const file = if (ext.len == 0) e.key_ptr.* else try mem.concat(a, u8, &.{ e.key_ptr.*, ext });
+        const obj = e.value_ptr.*;
+        if (obj != .object) return fail("{s}/{s}: record is not an object", .{ subdir, file });
+        const name = str(obj.object.get("name") orelse .null) orelse return fail("{s}/{s}: no name", .{ subdir, file });
+        const version = str(obj.object.get("version") orelse .null) orelse return fail("{s}/{s}: no version", .{ subdir, file });
+        const bn: u64 = switch (obj.object.get("build_number") orelse .null) {
+            .integer => |n| if (n >= 0) @intCast(n) else return fail("{s}/{s}: negative build_number", .{ subdir, file }),
+            else => return fail("{s}/{s}: no build_number", .{ subdir, file }),
+        };
+        try records.append(a, .{
+            .subdir = subdir,
+            .name = name,
+            .version = version,
+            .build_number = bn,
+            .file = file,
+            .build = str(obj.object.get("build") orelse .null) orelse "",
+            .sha256 = str(obj.object.get("sha256") orelse .null) orelse "",
+        });
+        try files.append(a, file);
+    }
 }
 
 fn isPackageFile(name: []const u8) bool {
@@ -274,24 +324,164 @@ fn pad(a: mem.Allocator, out: *std.ArrayList(u8), s: []const u8, width: usize) !
     if (s.len >= width) try out.append(a, ' ');
 }
 
-const usage = "usage: zig-toolchain check-alignment [--expect <subdir>[,<subdir>...]] <channel-or-subdir-dir>...\n";
+fn isUrl(channel: []const u8) bool {
+    return mem.startsWith(u8, channel, "https://") or mem.startsWith(u8, channel, "http://");
+}
+
+/// The published records of `subdirs` in `channel` (a URL or a directory).
+pub fn loadPublished(io: Io, a: mem.Allocator, channel: []const u8, subdirs: []const []const u8, records: *std.ArrayList(Record)) LoadError!void {
+    const base = mem.trimEnd(u8, channel, "/");
+    var client: std.http.Client = .{ .allocator = a, .io = io };
+    defer client.deinit();
+    // a misspelled channel must not read as an empty one: a directory must
+    // exist, a URL must serve noarch (every channel has it)
+    if (isUrl(base)) {
+        const noarch = try mem.concat(a, u8, &.{ base, "/noarch/repodata.json" });
+        if (try fetch(&client, a, noarch) == null) return fail("{s} is not a channel: {s} is not found", .{ base, noarch });
+    } else {
+        var dir = Io.Dir.cwd().openDir(io, base, .{}) catch |err|
+            return fail("cannot open published channel {s}: {t}", .{ base, err });
+        dir.close(io);
+    }
+    for (subdirs) |sd| {
+        const loc = try mem.concat(a, u8, &.{ base, "/", sd, "/repodata.json" });
+        const text = if (isUrl(base)) try fetch(&client, a, loc) else Io.Dir.cwd().readFileAlloc(io, loc, a, .limited(1 << 30)) catch |err| switch (err) {
+            error.FileNotFound => null,
+            else => return fail("cannot read {s}: {t}", .{ loc, err }),
+        };
+        const t = text orelse continue;
+        var files: std.ArrayList([]const u8) = .empty;
+        _ = parseRepodata(a, t, sd, records, &files) catch |err| {
+            std.debug.print("zig-toolchain check-alignment: in {s}\n", .{loc});
+            return err;
+        };
+    }
+}
+
+/// The body of a GET of `url`, or null on 404 (a subdir the channel does
+/// not have).
+fn fetch(client: *std.http.Client, a: mem.Allocator, url: []const u8) LoadError!?[]const u8 {
+    var body: Io.Writer.Allocating = .init(a);
+    const res = client.fetch(.{ .location = .{ .url = url }, .response_writer = &body.writer }) catch |err|
+        return fail("cannot fetch {s}: {t}", .{ url, err });
+    if (res.status == .not_found) return null;
+    if (res.status != .ok) return fail("cannot fetch {s}: HTTP {d}", .{ url, @backingInt(res.status) });
+    return body.written();
+}
+
+fn lessRecord(_: void, x: Record, y: Record) bool {
+    return switch (mem.order(u8, x.subdir, y.subdir)) {
+        .lt => true,
+        .gt => false,
+        .eq => switch (mem.order(u8, x.name, y.name)) {
+            .lt => true,
+            .gt => false,
+            .eq => switch (mem.order(u8, x.version, y.version)) {
+                .lt => true,
+                .gt => false,
+                .eq => mem.order(u8, x.file, y.file) == .lt,
+            },
+        },
+    };
+}
+
+/// Rules 3 and 4: the local records against the published ones, into
+/// `out`. Returns the number of problems.
+pub fn compare(
+    a: mem.Allocator,
+    channel: []const u8,
+    local: []const Record,
+    published: []const Record,
+    out: *std.ArrayList(u8),
+) error{OutOfMemory}!usize {
+    var problems: std.ArrayList([]const u8) = .empty;
+    // the newest local build of each subdir, name and version
+    var rows: std.ArrayList(Record) = .empty;
+    for (local) |r| if (newest(local, .{ .name = r.name, .version = r.version }, r.subdir) == r.build_number)
+        try rows.append(a, r);
+    mem.sort(Record, rows.items, {}, lessRecord);
+
+    var sub_w: usize = "subdir".len;
+    var name_w: usize = "package".len;
+    var ver_w: usize = "version".len;
+    var build_w: usize = "build".len;
+    for (rows.items) |r| {
+        sub_w = @max(sub_w, r.subdir.len);
+        name_w = @max(name_w, r.name.len);
+        ver_w = @max(ver_w, r.version.len);
+        build_w = @max(build_w, r.build.len);
+    }
+    try out.print(a, "published channel: {s}\n", .{channel});
+    try pad(a, out, "subdir", sub_w + 2);
+    try pad(a, out, "package", name_w + 2);
+    try pad(a, out, "version", ver_w + 2);
+    try pad(a, out, "build", build_w + 2);
+    try pad(a, out, "published", 11);
+    try out.appendSlice(a, "status\n");
+
+    var n_new: usize = 0;
+    var n_published: usize = 0;
+    var n_skip: usize = 0;
+    for (rows.items) |r| {
+        const k: Key = .{ .name = r.name, .version = r.version };
+        const top = newest(published, k, r.subdir);
+        var same: ?Record = null;
+        var other: ?Record = null;
+        for (published) |p| {
+            if (!mem.eql(u8, p.subdir, r.subdir) or !mem.eql(u8, p.name, r.name) or !mem.eql(u8, p.version, r.version)) continue;
+            if (mem.eql(u8, p.file, r.file)) same = p else if (p.build_number == r.build_number) other = p;
+        }
+        var status: []const u8 = "new";
+        if (top != null and r.build_number < top.?) {
+            status = "FAIL";
+            try problems.append(a, try std.fmt.allocPrint(a, "{s} {s} {s}: build number _{d} is below the published _{d}", .{ r.subdir, r.name, r.version, r.build_number, top.? }));
+        } else if (same) |p| {
+            if (p.sha256.len > 0 and r.sha256.len > 0 and !mem.eql(u8, p.sha256, r.sha256)) {
+                status = "skip";
+                n_skip += 1;
+            } else status = "published";
+            n_published += 1;
+        } else if (other) |p| {
+            status = "FAIL";
+            try problems.append(a, try std.fmt.allocPrint(a, "{s} {s} {s}: build number _{d} is published as {s}, this build is {s}: bump build.number", .{ r.subdir, r.name, r.version, r.build_number, p.file, r.file }));
+        } else n_new += 1;
+        try pad(a, out, r.subdir, sub_w + 2);
+        try pad(a, out, r.name, name_w + 2);
+        try pad(a, out, r.version, ver_w + 2);
+        try pad(a, out, if (r.build.len > 0) r.build else "?", build_w + 2);
+        try pad(a, out, if (top) |n| try std.fmt.allocPrint(a, "_{d}", .{n}) else "-", 11);
+        try out.print(a, "{s}\n", .{status});
+    }
+
+    for (problems.items) |p| try out.print(a, "problem: {s}\n", .{p});
+    if (problems.items.len == 0)
+        try out.print(a, "published comparison OK: {d} new, {d} already published ({d} rebuilt with other content, kept as published by --skip-existing)\n", .{ n_new, n_published, n_skip })
+    else
+        try out.print(a, "published comparison FAILED: {d} problem(s) (a build number not below the published one, one build string per number; DESIGN R15)\n", .{problems.items.len});
+    return problems.items.len;
+}
+
+const usage = "usage: zig-toolchain check-alignment [--expect <subdir>[,<subdir>...]] [--published <channel-url-or-dir>] <channel-or-subdir-dir>...\n";
 
 pub fn run(io: Io, a: mem.Allocator, args: []const []const u8) u8 {
     var expect: std.ArrayList([]const u8) = .empty;
     var dirs: std.ArrayList([]const u8) = .empty;
+    var published: ?[]const u8 = null;
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const x = args[i];
         var list: ?[]const u8 = null;
-        if (mem.eql(u8, x, "--expect")) {
+        if (mem.eql(u8, x, "--expect") or mem.eql(u8, x, "--published")) {
             if (i + 1 >= args.len) {
-                std.debug.print("zig-toolchain check-alignment: --expect needs a value\n{s}", .{usage});
+                std.debug.print("zig-toolchain check-alignment: {s} needs a value\n{s}", .{ x, usage });
                 return 2;
             }
             i += 1;
-            list = args[i];
+            if (mem.eql(u8, x, "--expect")) list = args[i] else published = args[i];
         } else if (mem.startsWith(u8, x, "--expect=")) {
             list = x["--expect=".len..];
+        } else if (mem.startsWith(u8, x, "--published=")) {
+            published = x["--published=".len..];
         } else if (mem.startsWith(u8, x, "-")) {
             std.debug.print("zig-toolchain check-alignment: unknown option {s}\n{s}", .{ x, usage });
             return 2;
@@ -301,15 +491,24 @@ pub fn run(io: Io, a: mem.Allocator, args: []const []const u8) u8 {
             while (it.next()) |s| expect.append(a, s) catch return 1;
         }
     }
-    if (dirs.items.len == 0) {
+    if (dirs.items.len == 0 or (published != null and published.?.len == 0)) {
         std.debug.print("{s}", .{usage});
         return 2;
     }
     var records: std.ArrayList(Record) = .empty;
     var subdirs: std.ArrayList([]const u8) = .empty;
     for (dirs.items) |d| load(io, a, d, &records, &subdirs) catch return 1;
+    // the published side: only the subdirs that have packages here
+    var pub_records: std.ArrayList(Record) = .empty;
+    if (published) |ch| {
+        var with: std.ArrayList([]const u8) = .empty;
+        for (records.items) |r| if (!contains(with.items, r.subdir)) with.append(a, r.subdir) catch return 1;
+        mem.sort([]const u8, with.items, {}, lessStr);
+        loadPublished(io, a, ch, with.items, &pub_records) catch return 1;
+    }
     var out: std.ArrayList(u8) = .empty;
-    const n = check(a, records.items, subdirs.items, expect.items, &out) catch return 1;
+    var n = check(a, records.items, subdirs.items, expect.items, &out) catch return 1;
+    if (published) |ch| n += compare(a, ch, records.items, pub_records.items, &out) catch return 1;
     Io.File.stdout().writeStreamingAll(io, out.items) catch return 1;
     return if (n == 0) 0 else 1;
 }
@@ -460,4 +659,145 @@ test "load: a channel root whose subdir is a symlink" {
     try testing.expectEqual(@as(usize, 2), records.items.len);
     const r = try runCheck(a, records.items, subdirs.items, &.{ "win-64", "win-arm64" });
     try testing.expectEqual(@as(usize, 0), r.n);
+}
+
+/// A repodata.json of one subdir with `entries`: file, name, version,
+/// build number, sha256.
+fn fixture(a: mem.Allocator, subdir: []const u8, entries: []const struct { []const u8, []const u8, []const u8, u64, []const u8 }) ![]const u8 {
+    var text: std.ArrayList(u8) = .empty;
+    try text.print(a, "{{\"info\":{{\"subdir\":\"{s}\"}},\"packages\":{{}},\"packages.conda\":{{", .{subdir});
+    for (entries, 0..) |e, i| {
+        if (i > 0) try text.append(a, ',');
+        const build = e[0][e[1].len + e[2].len + 2 .. e[0].len - ".conda".len];
+        try text.print(a, "\"{s}\":{{\"name\":\"{s}\",\"version\":\"{s}\",\"build\":\"{s}\",\"build_number\":{d},\"sha256\":\"{s}\"}}", .{ e[0], e[1], e[2], build, e[3], e[4] });
+    }
+    try text.appendSlice(a, "},\"repodata_version\":1,\"v3\":{}}");
+    return text.items;
+}
+
+fn parsed(a: mem.Allocator, texts: []const []const u8) ![]const Record {
+    var records: std.ArrayList(Record) = .empty;
+    var files: std.ArrayList([]const u8) = .empty;
+    for (texts) |t| _ = try parseRepodata(a, t, "fallback", &records, &files);
+    return records.items;
+}
+
+fn runCompare(a: mem.Allocator, local: []const Record, published: []const Record) !struct { n: usize, text: []const u8 } {
+    var out: std.ArrayList(u8) = .empty;
+    const n = try compare(a, "https://prefix.dev/universe", local, published, &out);
+    return .{ .n = n, .text = out.items };
+}
+
+test "compare: nothing published, every build is new" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const local = try parsed(a, &.{
+        try fixture(a, "win-64", &.{.{ "zig-zlib-1.3.1-zig_29ef852_0.conda", "zig-zlib", "1.3.1", 0, "aa" }}),
+        try fixture(a, "win-arm64", &.{.{ "zig-zlib-1.3.1-zig_6e0c9c0_0.conda", "zig-zlib", "1.3.1", 0, "bb" }}),
+    });
+    // an empty subdir, and a published subdir with other packages only
+    const published = try parsed(a, &.{
+        try fixture(a, "win-64", &.{.{ "r-zig-slim-4.6.0-h1_11.conda", "r-zig-slim", "4.6.0", 11, "cc" }}),
+        try fixture(a, "win-arm64", &.{}),
+    });
+    const r = try runCompare(a, local, published);
+    try testing.expectEqual(@as(usize, 0), r.n);
+    try testing.expect(mem.indexOf(u8, r.text, "win-64     zig-zlib  1.3.1    zig_29ef852_0  -          new\n") != null);
+    try testing.expect(mem.indexOf(u8, r.text, "published comparison OK: 2 new, 0 already published") != null);
+    try testing.expectEqual(@as(usize, 0), (try runCompare(a, local, &.{})).n);
+}
+
+test "compare: the same file is already published; a rebuild is a skip, not a problem" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const local = try parsed(a, &.{try fixture(a, "win-64", &.{
+        .{ "zig-zlib-1.3.1-zig_29ef852_0.conda", "zig-zlib", "1.3.1", 0, "aa" },
+        .{ "zig-sqlite-3.51.2-zig_1d5992e_0.conda", "zig-sqlite", "3.51.2", 0, "new" },
+    })});
+    const published = try parsed(a, &.{try fixture(a, "win-64", &.{
+        .{ "zig-zlib-1.3.1-zig_29ef852_0.conda", "zig-zlib", "1.3.1", 0, "aa" },
+        .{ "zig-sqlite-3.51.2-zig_1d5992e_0.conda", "zig-sqlite", "3.51.2", 0, "old" },
+    })});
+    const r = try runCompare(a, local, published);
+    try testing.expectEqual(@as(usize, 0), r.n);
+    try testing.expect(mem.indexOf(u8, r.text, "zig_29ef852_0  _0         published\n") != null);
+    try testing.expect(mem.indexOf(u8, r.text, "zig_1d5992e_0  _0         skip\n") != null);
+    try testing.expect(mem.indexOf(u8, r.text, "published comparison OK: 0 new, 2 already published (1 rebuilt") != null);
+}
+
+test "compare: same build number, other build string; below the published number, even as the same file" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const local = try parsed(a, &.{try fixture(a, "win-64", &.{
+        .{ "zig-zlib-1.3.1-zig_29ef852_0.conda", "zig-zlib", "1.3.1", 0, "aa" },
+        .{ "zig-expat-2.7.3-zig_7fcb7fd_1.conda", "zig-expat", "2.7.3", 1, "bb" },
+        // an older local build is not compared, only the newest
+        .{ "zig-geos-3.14.1-zig_573ba6a_0.conda", "zig-geos", "3.14.1", 0, "cc" },
+        .{ "zig-geos-3.14.1-zig_573ba6a_1.conda", "zig-geos", "3.14.1", 1, "dd" },
+        // published, but a newer number is published too
+        .{ "zig-proj-9.7.1-zig_4f71b06_0.conda", "zig-proj", "9.7.1", 0, "hh" },
+    })});
+    const published = try parsed(a, &.{try fixture(a, "win-64", &.{
+        .{ "zig-zlib-1.3.1-zig_0000000_0.conda", "zig-zlib", "1.3.1", 0, "ee" },
+        .{ "zig-expat-2.7.3-zig_7fcb7fd_2.conda", "zig-expat", "2.7.3", 2, "ff" },
+        .{ "zig-geos-3.14.1-zig_573ba6a_0.conda", "zig-geos", "3.14.1", 0, "cc" },
+        // another version does not count
+        .{ "zig-zlib-1.3.2-zig_1111111_5.conda", "zig-zlib", "1.3.2", 5, "gg" },
+        .{ "zig-proj-9.7.1-zig_4f71b06_0.conda", "zig-proj", "9.7.1", 0, "hh" },
+        .{ "zig-proj-9.7.1-zig_4f71b06_1.conda", "zig-proj", "9.7.1", 1, "ii" },
+    })});
+    const r = try runCompare(a, local, published);
+    try testing.expectEqual(@as(usize, 3), r.n);
+    try testing.expect(mem.indexOf(u8, r.text, "problem: win-64 zig-proj 9.7.1: build number _0 is below the published _1\n") != null);
+    try testing.expect(mem.indexOf(u8, r.text, "problem: win-64 zig-zlib 1.3.1: build number _0 is published as zig-zlib-1.3.1-zig_0000000_0.conda, this build is zig-zlib-1.3.1-zig_29ef852_0.conda: bump build.number\n") != null);
+    try testing.expect(mem.indexOf(u8, r.text, "problem: win-64 zig-expat 2.7.3: build number _1 is below the published _2\n") != null);
+    try testing.expect(mem.indexOf(u8, r.text, "win-64  zig-geos   3.14.1   zig_573ba6a_1  _0         new\n") != null);
+    try testing.expect(mem.indexOf(u8, r.text, "published comparison FAILED: 3 problem(s)") != null);
+}
+
+test "parseRepodata: build string, sha256 and the v3 section" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const text =
+        \\{"info":{"subdir":"win-64"},"packages":{},"packages.conda":{},"v3":{"conda":{"blast-2.17.0-ha1ecfd9_206":
+        \\{"build":"ha1ecfd9_206","build_number":206,"name":"blast","sha256":"2a","version":"2.17.0","flags":["toolchain:zig"]}}}}
+    ;
+    const records = try parsed(a, &.{text});
+    try testing.expectEqual(@as(usize, 1), records.len);
+    try testing.expectEqualStrings("blast-2.17.0-ha1ecfd9_206.conda", records[0].file);
+    try testing.expectEqualStrings("ha1ecfd9_206", records[0].build);
+    try testing.expectEqualStrings("2a", records[0].sha256);
+    try testing.expectEqual(@as(u64, 206), records[0].build_number);
+    try testing.expectError(error.BadRepodata, parsed(a, &.{"{\"v3\":[]}"}));
+}
+
+test "loadPublished: a channel directory; a missing subdir is empty" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const io = testing.io;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const base = try std.fs.path.join(a, &.{ ".zig-cache", "tmp", &tmp.sub_path });
+    try tmp.dir.createDirPath(io, "ch/win-64");
+    try tmp.dir.writeFile(io, .{ .sub_path = "ch/win-64/repodata.json", .data = try fixture(a, "win-64", &.{.{ "zig-zlib-1.3.1-zig_29ef852_0.conda", "zig-zlib", "1.3.1", 0, "aa" }}) });
+    var records: std.ArrayList(Record) = .empty;
+    // a trailing slash, as a URL may have
+    try loadPublished(io, a, try std.fs.path.join(a, &.{ base, "ch/" }), &.{ "win-64", "win-arm64" }, &records);
+    try testing.expectEqual(@as(usize, 1), records.items.len);
+    try testing.expectEqualStrings("win-64", records.items[0].subdir);
+    try testing.expectError(error.BadRepodata, loadPublished(io, a, try std.fs.path.join(a, &.{ base, "nochannel" }), &.{"win-64"}, &records));
+}
+
+test "run: usage" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    try testing.expectEqual(@as(u8, 2), run(testing.io, a, &.{ "x", "--published" }));
+    try testing.expectEqual(@as(u8, 2), run(testing.io, a, &.{ "--published=", "x" }));
+    try testing.expectEqual(@as(u8, 2), run(testing.io, a, &.{"--bogus"}));
 }

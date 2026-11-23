@@ -23,9 +23,10 @@
 //!
 //! Called as zig-toolchain:
 //!   zig-toolchain close-pc [--libs "<words>"] <file.pc>...   (closepc.zig)
-//!   zig-toolchain check-alignment [--expect <subdir>,...] <dir>...
+//!   zig-toolchain check-alignment [--expect <subdir>,...] [--published <channel>] <dir>...
 //!                                                             one build number per package
-//!                                                             across subdirs (alignment.zig)
+//!                                                             across subdirs, compared with
+//!                                                             a published channel (alignment.zig)
 //!   zig-toolchain <triple>-<tool> <args>...                   the tool, by name
 //!   zig-toolchain pe-machine <file>...                        a PE/COFF file's machine
 //!   zig-toolchain version | --version
@@ -63,10 +64,10 @@ const Tool = enum {
 
     fn fromName(name: []const u8) ?Tool {
         const map = std.StaticStringMap(Tool).initComptime(.{
-            .{ "cc", .cc },           .{ "gcc", .cc },         .{ "c++", .cxx },
-            .{ "g++", .cxx },         .{ "ar", .ar },          .{ "ranlib", .ranlib },
-            .{ "dlltool", .dlltool }, .{ "windres", .windres }, .{ "rc", .rc },
-            .{ "strip", .strip },     .{ "nm", .unsupported }, .{ "objdump", .unsupported },
+            .{ "cc", .cc },               .{ "gcc", .cc },              .{ "c++", .cxx },
+            .{ "g++", .cxx },             .{ "ar", .ar },               .{ "ranlib", .ranlib },
+            .{ "dlltool", .dlltool },     .{ "windres", .windres },     .{ "rc", .rc },
+            .{ "strip", .strip },         .{ "nm", .unsupported },      .{ "objdump", .unsupported },
             .{ "objcopy", .unsupported }, .{ "readelf", .unsupported }, .{ "addr2line", .unsupported },
             .{ "ld", .unsupported },
         });
@@ -97,7 +98,7 @@ const usage_text =
     \\usage: <triple>-{cc,c++,ar,ranlib,dlltool,windres,rc,strip} [args...]
     \\       zig-toolchain <triple>-<tool> [args...]
     \\       zig-toolchain close-pc [--libs "<words>"] <file.pc>...
-    \\       zig-toolchain check-alignment [--expect <subdir>,...] <dir>...
+    \\       zig-toolchain check-alignment [--expect <subdir>,...] [--published <channel>] <dir>...
     \\       zig-toolchain pe-machine <file>...
     \\       zig-toolchain version
     \\       zig-toolchain tools
