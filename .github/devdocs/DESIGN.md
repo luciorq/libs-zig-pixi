@@ -328,10 +328,10 @@ A branch in r-zig-pixi after M3 [consumer §3(b)]; lines are origin/main f951022
 
 1. **`zigbuild/tools/rzig/environment.zig` `list()` (:126-141):** for R's env and `R_ZIG_EXTRA_ENV`, when `<dir>/zig-libs/<triple>` exists, insert it as an `Env` before its parent (`.conda=false`, new `.zig_libs` flag; `openmp()` skips it). Tests next to :262-345. Order alone makes zig-libs win, which also fixes the conda-abseil header/archive skew (W15) [consumer §2] V.
 2. **`build.zig` `rcmdEnviron` (:2813-2841)** (D10): prepend `${R_HOME}/../../zig-libs/<triple>/lib/pkgconfig` to `PKG_CONFIG_PATH`; `PKG_CONFIG_LIBDIR="${PKG_CONFIG_LIBDIR-<zig-libs pc>;…}"` (the s2 fix: `Makevars.win:11` replaces `PKG_CONFIG_PATH`) [consumer §1] V; `R_TOOLS_SOFT="${R_TOOLS_SOFT-${R_HOME}/../../zig-libs/<triple>}"` (`Makeconf.win:57` uses `?=`). Later an rzig `pkg-config` mode.
-3. **`build.zig` `cmakeToolchain` (:4268):** zig-libs first in `CMAKE_SYSTEM_PREFIX_PATH`.
-4. **`stress/stress.R`:** `:416` `R_TOOLS_SOFT` to zig-libs when present; `:719-721` `.pc` order zig-libs, tree, env. The Rtools tree is used only when zig-gdal is absent.
+3. **`build.zig` `cmakeToolchain` (:4268):** zig-libs first on `CMAKE_PREFIX_PATH` (D80). Not `CMAKE_SYSTEM_PREFIX_PATH`: CMake searches the prefixes it derives from PATH before that one, so a conda-forge copy under the env's `Library` won (r-zig-pixi feat-zig-libs ZL11, V on gamma).
+4. **`stress/stress.R`:** `:416` `R_TOOLS_SOFT` to zig-libs when present; `:719-721` `.pc` order zig-libs, tree, env. The Rtools tree stays behind zig-libs for the libraries no zig-* package has yet (nlopt, gsl, gmp, mpfr, glpk, hdf5, netcdf, udunits2, harfbuzz, libpq); only GDAL/GEOS/PROJ precedence changes (r-zig-pixi feat-zig-libs ZL14).
 5. **`stress/packages.tsv` sysdeps:** sf, gdalraster `libgdal-core@linux libgdal-core@macos zig-gdal@windows zig-geos@windows zig-proj@windows`; terra the same plus `zig-onetbb@windows`; s2 `zig-abseil@windows zig-openssl@windows`. Expectations become `windows=ok`, with an explicit `windows-aarch64=` key where the arches differ [review L9].
-6. **`pixi.toml`:** universe is already before conda-forge. Before publishing, tests use a `file://` channel from the libs-zig-pixi CI artifact via `pixi exec`, not a locked env.
+6. **`pixi.toml`:** universe is already before conda-forge. Before publishing, tests use a `file://` channel from the libs-zig-pixi CI artifact through `stress.R --libs-channel` (its `--conda` workspace, never the repo lock), not a locked env.
 7. **`CXX-STDLIB.md`:** amend the "Ruled out" entry (section 1).
 8. **Stress report column:** per row, the zig-* builds that were linked (name and build number), and whether any `-l` resolved into the fallback tree (section 8).
 
@@ -374,7 +374,7 @@ A native fallback (building a recipe on a Windows runner) stays possible if cros
 | M1 | zig-sqlite, zig-expat, zig-openssl | Smoke executables run on both arches; RTREE works; `PRAGMA compile_options` matches; OpenSSL archives in `lib/`. |
 | M2 | zig-geos, zig-proj, zig-abseil, zig-onetbb | Smoke tests as `R CMD SHLIB` DLLs (D20) run on both arches. `proj.db` present and the embedded copy works without `PROJ_DATA`. `llvm-nm`: libc++ only; no exported `sqlite3_*` in `libproj.a`. Multi-threaded `parallel_for`. |
 | M3 | zig-gdal | GDAL smoke (DLL) opens GPKG, GTiff, GeoJSON, Shapefile on both arches. `gdal.pc` closed (link works without `--static`). No duplicate defined symbols over the closure. Licence inventory complete. |
-| M4 | r-zig-pixi consumer branch (section 7) against the artifact channel | sf, terra, gdalraster, s2 install and pass `tests/r/smoke.R` on both arches with conda zig, and in the gated leg with upstream ziglang; a multi-threaded terra call; stress rows ok; link logs show `lib<n>.a`. |
+| M4 | r-zig-pixi consumer branch (section 7) against the artifact channel | sf, terra, gdalraster, s2 install and pass `tests/r/smoke.R` (D81) on both arches with conda zig, and in the gated leg with upstream ziglang; a multi-threaded terra call; stress rows ok; link logs show `lib<n>.a`. |
 | M5 | Publish build 0 to universe (OIDC); r-zig-pixi consumes from universe | GraphQL verify lists every package in win-64 and win-arm64; r-zig-pixi CI green from universe; the stress zig-* build/fallback column exists. |
 | M6 (later) | Slice 2 (6.4), linux/macOS if wanted (D5), retiring `R_ZIG_FALLBACK_SOFT` | Defined in the slice-2 PLAN.md. |
 
@@ -406,6 +406,8 @@ All accepted 2026-11-20. "user" = accepted by the user's "Yes, continue with rec
 | D18 | Rules file | `.github/devdocs/CONVENTIONS.md` | `devdocs/RULES.md` | same name as r-zig-pixi [review M8.6] | default (user may revisit) |
 | D19 | Repo licence | MIT | BSD-3-Clause (first default), Apache-2.0 | matches zig and its port ecosystem; the reusable part is a Zig program; r-zig-pixi should use the same | user, 2026-11-20 |
 | D20 | Windows smoke tests | From M2, link as R packages do (`R CMD SHLIB` DLL via r-zig-slim, `dyn.load`, `.Call`); M0/M1 plain executables | executables only; reuse rzig link logic in zig-toolchain | rzig adds flags, `/OPT:NOICF`, cfguard, `tmp.def` that an executable never tests [review M2] | default (user may revisit) |
+| D80 | CMake prefix variable for zig-libs in r-zig.cmake (section 7.3) | `CMAKE_PREFIX_PATH` | `CMAKE_SYSTEM_PREFIX_PATH` (first design), plus a docs note | PATH-derived prefixes are searched before the system prefix path, so conda-forge's copy won (r-zig-pixi feat-zig-libs ZL11) | user, 2026-11-22 |
+| D81 | R smoke script | `tests/r/smoke.R` here, from the kappa M4 run, one `SMOKE` line per check, exit 1 on any failure | in r-zig-pixi `stress/`; only packages.tsv one-liners | one script both repos can run against the same packages | user, 2026-11-22 |
 
 ---
 
