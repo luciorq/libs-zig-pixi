@@ -1,0 +1,102 @@
+# zig-libpng: libpng, static only, for Windows (win-64, win-arm64),
+# cross-built on linux with zig-toolchain through libpng's own CMake build
+# (D1), on zig-zlib. Installed under the private sub-prefix
+# Library/zig-libs/<zig triple>/ (D2): lib/libpng16.a and lib/libpng.a,
+# include/{png,pngconf,pnglibconf}.h and include/libpng16/,
+# lib/pkgconfig/{libpng16,libpng}.pc (closed, relocatable, Requires:
+# zlib), licenses/libpng/.
+context:
+  version: ${{ libpng_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-libpng
+  version: ${{ version }}
+
+source:
+  - url: https://download.sourceforge.net/libpng/libpng-${{ version }}.tar.xz
+    sha256: 01c9d8a303c941ec2c511c14312a3b1d36cedb41e2f5168ccdaa85d53b887805
+  # the package test (tests/pkgtest.zig, tests/smoke/libpng.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # exact: puts cmake and ninja in the hash (variants.yaml)
+    - cmake ==${{ cmake }}
+    - ninja ==${{ ninja }}
+  host:
+    - zig-zlib
+  run_exports:
+    weak:
+      - ${{ pin_subpackage("zig-libpng", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libpng16.a
+          - ${{ sub }}/lib/libpng.a
+          - ${{ sub }}/include/png.h
+          - ${{ sub }}/include/pngconf.h
+          - ${{ sub }}/include/pnglibconf.h
+          - ${{ sub }}/include/libpng16/png.h
+          - ${{ sub }}/include/libpng16/pngconf.h
+          - ${{ sub }}/include/libpng16/pnglibconf.h
+          - ${{ sub }}/lib/pkgconfig/libpng16.pc
+          - ${{ sub }}/lib/pkgconfig/libpng.pc
+          - ${{ sub }}/licenses/libpng/LICENSE
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library; no programs, no libpng-config scripts, no man pages
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.exe"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/share/**
+  # tests/pkgtest.zig (its header says what it checks): libpng.pc pulls
+  # zig-zlib's zlib.pc through Requires (--require -lz); the relocated .pc
+  # resolves to existing paths, no absolute prefix in it, no build path in
+  # the archives, no C symbol in both libpng16.a and libz.a, no dllexport
+  # directive, and tests/smoke/libpng.c links (and runs, on Windows of the
+  # same arch: an RGBA PNG written to memory and read back). One plain
+  # command for bash (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -lz ${{ zt }} libpng zig-libs-tests/smoke/libpng.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/libpng.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: http://www.libpng.org/pub/png/libpng.html
+  license: libpng-2.0
+  license_file: LICENSE
+  summary: libpng (PNG reference library), static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/pnggroup/libpng

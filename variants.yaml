@@ -97,3 +97,31 @@ gsl_version:
   - "2.7.1"
 libpq_version:
   - "16.10"
+# text stack (slice2 D103, D122 B: with the compression libraries
+# libtiff and freetype use in Rtools45, without LERC and glib)
+zstd_version:
+  - "1.5.7"
+xz_version:
+  - "5.8.2"
+libdeflate_version:
+  - "1.25"
+brotli_version:
+  - "1.2.0"
+# no bzip2.pc in the tree; MXE's bzip2.mk (the last release)
+bzip2_version:
+  - "1.0.8"
+libpng_version:
+  - "1.6.54"
+# IJG libjpeg 9f (the tree's libjpeg.pc says 9.6.0), not libjpeg-turbo
+libjpeg_version:
+  - "9f"
+libwebp_version:
+  - "1.6.0"
+libtiff_version:
+  - "4.7.1"
+freetype_version:
+  - "2.14.1"
+fribidi_version:
+  - "1.0.16"
+harfbuzz_version:
+  - "12.3.0"

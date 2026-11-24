@@ -43,7 +43,10 @@ cmd = "rattler-build build --recipe recipes/{{ recipe }} --target-platform {{ su
 # this (build.yml), so the list lives only here. zig-openssl needs
 # zig-zlib; zig-proj zig-sqlite; zig-gdal zig-proj, zig-geos, zig-sqlite,
 # zig-expat and zig-zlib; zig-mpfr and zig-glpk need zig-gmp; zig-udunits2
-# zig-expat; zig-libpq zig-openssl (their host requirements).
+# zig-expat; zig-libpq zig-openssl; zig-libpng zig-zlib; zig-libtiff
+# zig-zlib, zig-libjpeg, zig-libwebp, zig-zstd, zig-xz, zig-libdeflate;
+# zig-freetype zig-zlib, zig-libpng, zig-bzip2, zig-brotli; zig-harfbuzz
+# zig-freetype (their host requirements).
 [tasks.build-libs]
 description = "Build every library recipe for <subdir> (win-64 | win-arm64), in dependency order"
 args = [{ arg = "subdir", default = "win-64" }]
@@ -64,6 +67,18 @@ depends-on = [
   { task = "build", args = ["zig-udunits2", "{{ subdir }}"] },
   { task = "build", args = ["zig-gsl", "{{ subdir }}"] },
   { task = "build", args = ["zig-libpq", "{{ subdir }}"] },
+  { task = "build", args = ["zig-zstd", "{{ subdir }}"] },
+  { task = "build", args = ["zig-xz", "{{ subdir }}"] },
+  { task = "build", args = ["zig-libdeflate", "{{ subdir }}"] },
+  { task = "build", args = ["zig-brotli", "{{ subdir }}"] },
+  { task = "build", args = ["zig-bzip2", "{{ subdir }}"] },
+  { task = "build", args = ["zig-libpng", "{{ subdir }}"] },
+  { task = "build", args = ["zig-libjpeg", "{{ subdir }}"] },
+  { task = "build", args = ["zig-libwebp", "{{ subdir }}"] },
+  { task = "build", args = ["zig-libtiff", "{{ subdir }}"] },
+  { task = "build", args = ["zig-freetype", "{{ subdir }}"] },
+  { task = "build", args = ["zig-fribidi", "{{ subdir }}"] },
+  { task = "build", args = ["zig-harfbuzz", "{{ subdir }}"] },
 ]
 
 # One build number per package across subdirs (D17, CONVENTIONS.md). The

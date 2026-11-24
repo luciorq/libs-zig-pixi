@@ -1,0 +1,119 @@
+# zig-harfbuzz: HarfBuzz, static only, for Windows (win-64, win-arm64),
+# cross-built on linux with zig-toolchain through HarfBuzz's own meson
+# build (D1; slice2 D119), with FreeType from zig-freetype and nothing else
+# (slice2 D122). Installed under the private sub-prefix
+# Library/zig-libs/<zig triple>/ (D2): lib/libharfbuzz.a and
+# lib/libharfbuzz-subset.a, include/harfbuzz/,
+# lib/pkgconfig/{harfbuzz,harfbuzz-subset}.pc (closed, relocatable;
+# harfbuzz Requires freetype2), licenses/harfbuzz/.
+context:
+  version: ${{ harfbuzz_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-harfbuzz
+  version: ${{ version }}
+
+source:
+  - url: https://github.com/harfbuzz/harfbuzz/releases/download/${{ version }}/harfbuzz-${{ version }}.tar.xz
+    sha256: 8660ebd3c27d9407fc8433b5d172bafba5f0317cb0bb4339f28e5370c93d42b7
+  # the package test (tests/pkgtest.zig, tests/smoke/harfbuzz.c and the
+  # test font freetype.h), for tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # meson and ninja, exact: in the hash (variants.yaml); python runs
+    # HarfBuzz's generator scripts. pkgconf finds zig-freetype for meson
+    # (the cross file's pkg-config; PKG_CONFIG_LIBDIR is the host's
+    # zig-libs).
+    - meson ==${{ meson }}
+    - ninja ==${{ ninja }}
+    - python
+    - pkgconf
+  host:
+    - zig-freetype
+  run_exports:
+    weak:
+      - ${{ pin_subpackage("zig-harfbuzz", upper_bound="x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libharfbuzz.a
+          - ${{ sub }}/lib/libharfbuzz-subset.a
+          - ${{ sub }}/include/harfbuzz/hb.h
+          - ${{ sub }}/include/harfbuzz/hb-ft.h
+          - ${{ sub }}/include/harfbuzz/hb-ot.h
+          - ${{ sub }}/include/harfbuzz/hb-subset.h
+          - ${{ sub }}/lib/pkgconfig/harfbuzz.pc
+          - ${{ sub }}/lib/pkgconfig/harfbuzz-subset.pc
+          - ${{ sub }}/licenses/harfbuzz/COPYING
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library, no programs; none of the optional libraries
+        # (harfbuzz-icu, -gobject, -cairo) or their headers; no CMake
+        # package (build.sh says why)
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.exe"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/lib/libharfbuzz-icu.a
+          - ${{ sub }}/lib/libharfbuzz-gobject.a
+          - ${{ sub }}/lib/libharfbuzz-cairo.a
+          - ${{ sub }}/include/harfbuzz/hb-glib.h
+          - ${{ sub }}/include/harfbuzz/hb-icu.h
+          - ${{ sub }}/include/harfbuzz/hb-graphite2.h
+          - ${{ sub }}/lib/cmake/harfbuzz/**
+  # tests/pkgtest.zig (its header says what it checks): harfbuzz.pc pulls
+  # zig-freetype's freetype2.pc, and with it zlib, libpng, bzip2 and
+  # Brotli, through Requires (--require -lfreetype); the relocated .pc
+  # resolves to existing paths, no absolute prefix in it, no build path in
+  # the archives, no C symbol in two archives of the closure, no dllexport
+  # directive, and tests/smoke/harfbuzz.c links with `zig cc`, without
+  # libc++ (HarfBuzz needs no C++ runtime, so no -lc++ or -lstdc++ in the
+  # .pc; not --libcxx either, which wants std::__1 symbols and HarfBuzz has
+  # none), and runs on Windows of the same arch: shaping with HarfBuzz's
+  # own font functions and through FreeType (hb-ft). One plain command for
+  # bash (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -lharfbuzz --require -lfreetype --forbid -lstdc++ --forbid -lc++ ${{ zt }} harfbuzz zig-libs-tests/smoke/harfbuzz.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/harfbuzz.c
+        - zig-libs-tests/smoke/freetype.h
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://harfbuzz.github.io/
+  license: MIT
+  license_file: COPYING
+  summary: HarfBuzz text shaping library, static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/harfbuzz/harfbuzz

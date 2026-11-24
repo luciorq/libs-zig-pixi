@@ -1,0 +1,109 @@
+# zig-libtiff: libtiff, static only, for Windows (win-64, win-arm64),
+# cross-built on linux with zig-toolchain through libtiff's own CMake build
+# (D1), with the codecs of Rtools45's build except LERC (slice2 D122 B):
+# zlib (Deflate), libdeflate, libjpeg (IJG 9f), libwebp, zstd and xz
+# (LZMA2), each from its zig-* package in the host env. No JBIG, no 12-bit
+# JPEG, no OpenGL, no tools; no libtiffxx (the R packages use the C API
+# only). Installed under the private sub-prefix Library/zig-libs/<zig
+# triple>/ (D2): lib/libtiff.a, include/{tiff,tiffconf,tiffio,tiffvers}.h,
+# lib/pkgconfig/libtiff-4.pc (closed, relocatable, Requires: the codec
+# modules), licenses/libtiff/.
+context:
+  version: ${{ libtiff_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-libtiff
+  version: ${{ version }}
+
+source:
+  - url: https://download.osgeo.org/libtiff/tiff-${{ version }}.tar.xz
+    sha256: b92017489bdc1db3a4c97191aa4b75366673cb746de0dce5d7a749d5954681ba
+  # the package test (tests/pkgtest.zig, tests/smoke/libtiff.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # exact: puts cmake and ninja in the hash (variants.yaml)
+    - cmake ==${{ cmake }}
+    - ninja ==${{ ninja }}
+  host:
+    - zig-zlib
+    - zig-libdeflate
+    - zig-libjpeg
+    - zig-libwebp
+    - zig-zstd
+    - zig-xz
+  run_exports:
+    weak:
+      - ${{ pin_subpackage("zig-libtiff", upper_bound="x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libtiff.a
+          - ${{ sub }}/include/tiff.h
+          - ${{ sub }}/include/tiffconf.h
+          - ${{ sub }}/include/tiffio.h
+          - ${{ sub }}/include/tiffvers.h
+          - ${{ sub }}/lib/pkgconfig/libtiff-4.pc
+          - ${{ sub }}/licenses/libtiff/LICENSE.md
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library; no libtiffxx, no tools, no docs, no CMake config
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.exe"
+          - "**/libtiffxx.a"
+          - "**/tiffio.hxx"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/share/**
+          - ${{ sub }}/lib/cmake/**
+  # tests/pkgtest.zig (its header says what it checks): libtiff-4.pc pulls
+  # every codec's .pc through Requires (--require -l<n> for each); the
+  # relocated .pc resolves to existing paths, no absolute prefix in it, no
+  # build path in the archives, no C symbol defined in two archives of the
+  # closure, no dllexport directive, and tests/smoke/libtiff.c links (and
+  # runs, on Windows of the same arch: an RGB TIFF written and read back
+  # per codec). One plain command for bash (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -ljpeg --require -lwebp --require -lzstd --require -llzma --require -ldeflate --require -lz ${{ zt }} libtiff-4 zig-libs-tests/smoke/libtiff.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/libtiff.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://libtiff.gitlab.io/libtiff/
+  license: libtiff
+  license_file: LICENSE.md
+  summary: libtiff (TIFF library), static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://gitlab.com/libtiff/libtiff

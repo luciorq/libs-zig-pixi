@@ -1,0 +1,109 @@
+# zig-libwebp: libwebp, static only, for Windows (win-64, win-arm64),
+# cross-built on linux with zig-toolchain through libwebp's own CMake build
+# (D1). Installed under the private sub-prefix Library/zig-libs/<zig
+# triple>/ (D2): lib/lib{webp,sharpyuv,webpdecoder,webpdemux,webpmux}.a,
+# include/webp/, lib/pkgconfig/lib{webp,sharpyuv,webpdecoder,webpdemux,
+# webpmux}.pc (upstream's, closed and relocatable), share/WebP/cmake/
+# (relocatable), licenses/libwebp/.
+context:
+  version: ${{ libwebp_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-libwebp
+  version: ${{ version }}
+
+source:
+  - url: https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-${{ version }}.tar.gz
+    sha256: e4ab7009bf0629fd11982d4c2aa83964cf244cffba7347ecd39019a9e38c4564
+  # the package test (tests/pkgtest.zig, tests/smoke/libwebp.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # exact: puts cmake and ninja in the hash (variants.yaml)
+    - cmake ==${{ cmake }}
+    - ninja ==${{ ninja }}
+  run_exports:
+    weak:
+      - ${{ pin_subpackage("zig-libwebp", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libwebp.a
+          - ${{ sub }}/lib/libsharpyuv.a
+          - ${{ sub }}/lib/libwebpdecoder.a
+          - ${{ sub }}/lib/libwebpdemux.a
+          - ${{ sub }}/lib/libwebpmux.a
+          - ${{ sub }}/include/webp/decode.h
+          - ${{ sub }}/include/webp/encode.h
+          - ${{ sub }}/include/webp/demux.h
+          - ${{ sub }}/include/webp/mux.h
+          - ${{ sub }}/include/webp/sharpyuv/sharpyuv.h
+          - ${{ sub }}/lib/pkgconfig/libwebp.pc
+          - ${{ sub }}/lib/pkgconfig/libsharpyuv.pc
+          - ${{ sub }}/lib/pkgconfig/libwebpdecoder.pc
+          - ${{ sub }}/lib/pkgconfig/libwebpdemux.pc
+          - ${{ sub }}/lib/pkgconfig/libwebpmux.pc
+          - ${{ sub }}/share/WebP/cmake/WebPConfig.cmake
+          - ${{ sub }}/licenses/libwebp/COPYING
+          - ${{ sub }}/licenses/libwebp/PATENTS
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library, no programs, no man pages
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.exe"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/share/man/**
+  # tests/pkgtest.zig (its header says what it checks): libwebp.pc pulls
+  # libsharpyuv through Requires; the relocated .pc files resolve to
+  # existing paths, no absolute prefix in them, no build path in the
+  # archives, no C symbol in two archives of the closure, no dllexport
+  # directive, and tests/smoke/libwebp.c links (and runs, on Windows of the
+  # same arch: a lossless encode/decode round trip, the decoder version).
+  # One plain command for bash (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -lsharpyuv ${{ zt }} libwebp,libwebpdemux,libwebpmux zig-libs-tests/smoke/libwebp.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/libwebp.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://developers.google.com/speed/webp
+  license: BSD-3-Clause
+  license_file:
+    - COPYING
+    - PATENTS
+  summary: libwebp WebP image library, static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://chromium.googlesource.com/webm/libwebp

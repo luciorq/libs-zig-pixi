@@ -1,0 +1,102 @@
+# zig-brotli: Brotli (libbrotlicommon, libbrotlidec, libbrotlienc), static
+# only, for Windows (win-64, win-arm64), cross-built on linux with
+# zig-toolchain through brotli's own CMake build (D1). Installed under the
+# private sub-prefix Library/zig-libs/<zig triple>/ (D2):
+# lib/libbrotli{common,dec,enc}.a, include/brotli/,
+# lib/pkgconfig/libbrotli{common,dec,enc}.pc (closed, relocatable; dec and
+# enc Require libbrotlicommon), licenses/brotli/. freetype reads
+# libbrotlidec.
+context:
+  version: ${{ brotli_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-brotli
+  version: ${{ version }}
+
+source:
+  - url: https://github.com/google/brotli/archive/refs/tags/v${{ version }}.tar.gz
+    sha256: 816c96e8e8f193b40151dad7e8ff37b1221d019dbcb9c35cd3fadbfe6477dfec
+  # the package test (tests/pkgtest.zig, tests/smoke/brotli.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # exact: puts cmake and ninja in the hash (variants.yaml)
+    - cmake ==${{ cmake }}
+    - ninja ==${{ ninja }}
+  run_exports:
+    weak:
+      - ${{ pin_subpackage("zig-brotli", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libbrotlicommon.a
+          - ${{ sub }}/lib/libbrotlidec.a
+          - ${{ sub }}/lib/libbrotlienc.a
+          - ${{ sub }}/include/brotli/decode.h
+          - ${{ sub }}/include/brotli/encode.h
+          - ${{ sub }}/include/brotli/port.h
+          - ${{ sub }}/lib/pkgconfig/libbrotlicommon.pc
+          - ${{ sub }}/lib/pkgconfig/libbrotlidec.pc
+          - ${{ sub }}/lib/pkgconfig/libbrotlienc.pc
+          - ${{ sub }}/licenses/brotli/LICENSE
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library, no -static suffixed archive; no brotli program, no man
+        # pages
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.exe"
+          - "**/*-static.a"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/share/**
+  # tests/pkgtest.zig (its header says what it checks): the relocated .pc
+  # files resolve to existing paths (dec and enc pull libbrotlicommon
+  # through Requires), no absolute prefix in them, no build path in the
+  # archives, no C symbol in two of the three archives, no dllexport
+  # directive, and tests/smoke/brotli.c links (and runs, on Windows of the
+  # same arch: an encode/decode round trip). One plain command for bash
+  # (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport ${{ zt }} libbrotlidec,libbrotlienc zig-libs-tests/smoke/brotli.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/brotli.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://github.com/google/brotli
+  license: MIT
+  license_file: LICENSE
+  summary: Brotli compression (libbrotlicommon, libbrotlidec, libbrotlienc), static libraries for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/google/brotli

@@ -1,0 +1,100 @@
+# zig-xz: liblzma from XZ Utils, static only, for Windows (win-64,
+# win-arm64), cross-built on linux with zig-toolchain through XZ Utils' own
+# CMake build, the library only (no xz, xzdec, lzmadec, lzmainfo, scripts,
+# docs or translations). Installed under the private sub-prefix
+# Library/zig-libs/<zig triple>/ (D2): lib/liblzma.a (multithreaded, with
+# Windows Vista threads), include/lzma.h and include/lzma/,
+# lib/pkgconfig/liblzma.pc (closed, relocatable, -DLZMA_API_STATIC in
+# Cflags), lib/cmake/liblzma/, licenses/xz/.
+context:
+  version: ${{ xz_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-xz
+  version: ${{ version }}
+
+source:
+  - url: https://github.com/tukaani-project/xz/releases/download/v${{ version }}/xz-${{ version }}.tar.xz
+    sha256: 890966ec3f5d5cc151077879e157c0593500a522f413ac50ba26d22a9a145214
+  # the package test (tests/pkgtest.zig, tests/smoke/xz.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # exact: puts cmake and ninja in the hash (variants.yaml)
+    - cmake ==${{ cmake }}
+    - ninja ==${{ ninja }}
+  run_exports:
+    weak:
+      # liblzma's ABI is stable within 5.x (soname liblzma.so.5)
+      - ${{ pin_subpackage("zig-xz", upper_bound="x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/liblzma.a
+          - ${{ sub }}/include/lzma.h
+          - ${{ sub }}/include/lzma/version.h
+          - ${{ sub }}/lib/pkgconfig/liblzma.pc
+          - ${{ sub }}/licenses/xz/COPYING
+          - ${{ sub }}/licenses/xz/COPYING.0BSD
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library, no tools, no docs, man pages or translations
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.exe"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/share/**
+  # tests/pkgtest.zig (its header says what it checks): the relocated .pc
+  # resolves to existing paths and says -DLZMA_API_STATIC, no absolute
+  # prefix in it, no build path in liblzma.a, no dllexport directive, and
+  # tests/smoke/xz.c links (and runs, on Windows of the same arch: an .xz
+  # round trip, the header against the library version). One plain
+  # command for bash (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -DLZMA_API_STATIC ${{ zt }} liblzma zig-libs-tests/smoke/xz.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/xz.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://tukaani.org/xz/
+  # liblzma alone is 0BSD (COPYING: the GPL and LGPL parts are the tools,
+  # scripts and build system, none of them in this package)
+  license: 0BSD
+  license_file:
+    - COPYING
+    - COPYING.0BSD
+  summary: liblzma (XZ Utils) compression library, static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/tukaani-project/xz
