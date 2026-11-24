@@ -332,15 +332,17 @@ jobs:
           # boost from the toolchain's tree when it uses a system libpq
           # (S2-F27). pgserver: a conda-forge PostgreSQL server for
           # RPostgres' query checks (none for win-arm64 on conda-forge)
+          # libxml2 (igraph, xml2) is zig-libxml2 since D125, no longer
+          # conda-forge's libxml2-devel.
           - subdir: win-64
             runner: windows-latest
-            sysdeps: libxml2-devel cmake libboost-headers
-            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units gsl RPostgres png jpeg tiff webp systemfonts textshaping ragg
+            sysdeps: cmake libboost-headers
+            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units gsl RPostgres png jpeg tiff webp systemfonts textshaping ragg xml2
             pgserver: "16.*"
           - subdir: win-arm64
             runner: windows-11-arm
-            sysdeps: libxml2-devel cmake libboost-headers
-            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units gsl RPostgres png jpeg tiff webp systemfonts textshaping ragg
+            sysdeps: cmake libboost-headers
+            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units gsl RPostgres png jpeg tiff webp systemfonts textshaping ragg xml2
             pgserver: ""
     env:
       SUBDIR: ${{ matrix.subdir }}
@@ -351,8 +353,9 @@ jobs:
       # gmp, mpfr, glpk; nloptr: nlopt; units: udunits2, expat; gsl: gsl;
       # RPostgres: libpq, openssl; png, jpeg, tiff, webp, systemfonts,
       # textshaping, ragg: the text stack and its compression libraries,
-      # D122; they come with the six named here)
-      ZIG_LIBS: zig-gdal zig-geos zig-proj zig-onetbb zig-abseil zig-openssl zig-gmp zig-mpfr zig-glpk zig-nlopt zig-udunits2 zig-expat zig-gsl zig-libpq zig-libpng zig-libjpeg zig-libtiff zig-libwebp zig-freetype zig-harfbuzz zig-fribidi
+      # D122; they come with the six named here; igraph, xml2: libxml2,
+      # with libiconv, zlib and xz, D125)
+      ZIG_LIBS: zig-gdal zig-geos zig-proj zig-onetbb zig-abseil zig-openssl zig-gmp zig-mpfr zig-glpk zig-nlopt zig-udunits2 zig-expat zig-gsl zig-libpq zig-libpng zig-libjpeg zig-libtiff zig-libwebp zig-freetype zig-harfbuzz zig-fribidi zig-libxml2
     steps:
       - name: Defender exclusions
         shell: pwsh
