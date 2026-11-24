@@ -1,0 +1,105 @@
+# zig-udunits2: UDUNITS-2, static only, for Windows (win-64, win-arm64),
+# cross-built on linux with zig-toolchain through its own autotools
+# configure (D1), run by `zig-toolchain configure` (slice2 D104), on
+# zig-expat. Installed under the private sub-prefix
+# Library/zig-libs/<zig triple>/ (D2): lib/libudunits2.a,
+# include/{udunits2,udunits,converter}.h, lib/pkgconfig/udunits2.pc
+# (written here: upstream installs none; closed, relocatable, Requires:
+# expat), share/udunits/ (the XML database), licenses/udunits2/.
+context:
+  # Rtools45 (r-windows/rtools-packages mingw-w64-udunits), variants.yaml
+  version: ${{ udunits2_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-udunits2
+  version: ${{ version }}
+
+source:
+  # Unidata's download host (the artifacts.unidata.ucar.edu URL that
+  # Rtools and conda-forge name answers 404 now; same sha256, S2-F20)
+  - url: https://downloads.unidata.ucar.edu/udunits/${{ version }}/udunits-${{ version }}.tar.gz
+    sha256: 590baec83161a3fd62c00efa66f6113cec8a7c461e3f61a5182167e0cc5d579e
+  # the package test (tests/pkgtest.zig, tests/smoke/udunits2.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # configure and make; exact: puts make and llvm_tools in the hash
+    # (variants.yaml). llvm-nm is configure's NM (zig-toolchain configure).
+    - make ==${{ make }}
+    - llvm-tools ==${{ llvm_tools }}
+  host:
+    - zig-expat
+  run_exports:
+    weak:
+      - ${{ pin_subpackage("zig-udunits2", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libudunits2.a
+          - ${{ sub }}/include/udunits2.h
+          - ${{ sub }}/include/converter.h
+          - ${{ sub }}/lib/pkgconfig/udunits2.pc
+          - ${{ sub }}/share/udunits/udunits2.xml
+          - ${{ sub }}/share/udunits/udunits2-base.xml
+          - ${{ sub }}/licenses/udunits2/COPYRIGHT
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library; no libtool archive, no udunits2 program, no docs
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.la"
+          - "**/*.exe"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/share/doc/**
+  # tests/pkgtest.zig (its header says what it checks): udunits2.pc pulls
+  # zig-expat's expat.pc through Requires (-lexpat, -DXML_STATIC); the
+  # relocated .pc resolves to existing paths, no absolute prefix in it, no
+  # build path in the archives, no C symbol in both libudunits2.a and
+  # libexpat.a, no dllexport directive, and tests/smoke/udunits2.c links
+  # (and runs, on Windows of the same arch: an XML unit system read with
+  # expat, 2.5 km in m). One plain command for bash (linux) and cmd.exe
+  # (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -lexpat --require -DXML_STATIC ${{ zt }} udunits2 zig-libs-tests/smoke/udunits2.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/udunits2.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://www.unidata.ucar.edu/software/udunits/
+  license: UCAR
+  license_file: COPYRIGHT
+  summary: UDUNITS-2 (units of physical quantities), static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/Unidata/UDUNITS-2

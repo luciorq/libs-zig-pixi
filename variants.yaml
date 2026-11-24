@@ -80,3 +80,7 @@ mpfr_version:
   - "4.2.2"
 glpk_version:
   - "5.0"
+nlopt_version:
+  - "2.10.0"
+udunits2_version:
+  - "2.2.28"

@@ -1,12 +1,13 @@
 # Smoke test of the R packages that link the zig-* libraries (DESIGN 9.2,
-# M4; slice 2 adds gmp, Rmpfr, igraph): sf, terra, gdalraster, s2, gmp,
-# Rmpfr, igraph. Run it with the R that installed them:
+# M4; slice 2 adds gmp, Rmpfr, igraph, nloptr, units): sf, terra,
+# gdalraster, s2, gmp, Rmpfr, igraph, nloptr, units. Run it with the R that
+# installed them:
 #   Rscript tests/r/smoke.R [package ...]      (default: all of them)
 # Each check prints one "SMOKE <name> PASS|FAIL|ERROR" line; the script
 # exits with status 1 when any check is not PASS. First run: kappa win-64,
 # 2026-11-22 (r-zig-pixi feat-zig-libs PLAN.md).
 args <- commandArgs(trailingOnly = TRUE)
-pkgs <- if (length(args)) args else c("sf", "terra", "gdalraster", "s2", "gmp", "Rmpfr", "igraph")
+pkgs <- if (length(args)) args else c("sf", "terra", "gdalraster", "s2", "gmp", "Rmpfr", "igraph", "nloptr", "units")
 
 res <- character()
 chk <- function(name, expr) {
@@ -179,6 +180,40 @@ if ("igraph" %in% pkgs) {
     write_graph(make_star(5), f, format = "graphml")
     g <- read_graph(f, format = "graphml")
     vcount(g) == 5 && ecount(g) == 4
+  })
+}
+
+# slice 2 batch 2: zig-nlopt (nloptr), zig-udunits2 (units, through
+# zig-expat)
+if ("nloptr" %in% pkgs) {
+  library(nloptr)
+  rosen <- function(x) 100 * (x[2] - x[1]^2)^2 + (1 - x[1])^2
+  grad <- function(x) c(-400 * x[1] * (x[2] - x[1]^2) - 2 * (1 - x[1]), 200 * (x[2] - x[1]^2))
+  chk("nloptr: Rosenbrock, LBFGS", {
+    r <- nloptr(c(-1.2, 1), rosen, grad, opts = list(algorithm = "NLOPT_LD_LBFGS", xtol_rel = 1e-10, maxeval = 1000))
+    r$status > 0 && max(abs(r$solution - 1)) < 1e-4
+  })
+  chk("nloptr: Rosenbrock, Nelder-Mead", {
+    r <- nloptr(c(-1.2, 1), rosen, opts = list(algorithm = "NLOPT_LN_NELDERMEAD", xtol_rel = 1e-10, maxeval = 5000))
+    r$status > 0 && max(abs(r$solution - 1)) < 1e-3
+  })
+  chk("nloptr: StoGO (NLopt's C++ code)", {
+    r <- nloptr(c(-1.2, 1), rosen, grad, lb = c(-2, -2), ub = c(2, 2),
+                opts = list(algorithm = "NLOPT_GD_STOGO", xtol_rel = 1e-8, maxeval = 5000))
+    r$status > 0 && max(abs(r$solution - 1)) < 1e-2
+  })
+}
+
+if ("units" %in% pkgs) {
+  library(units)
+  chk("units: 2.5 km in m", {
+    as.numeric(set_units(set_units(2.5, km), m)) == 2500
+  })
+  chk("units: derived units (km/h -> m/s)", {
+    abs(as.numeric(set_units(set_units(36, km/h), m/s)) - 10) < 1e-12
+  })
+  chk("units: incompatible units are an error", {
+    inherits(try(set_units(set_units(1, kg), m), silent = TRUE), "try-error")
   })
 }
 

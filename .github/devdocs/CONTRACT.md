@@ -18,7 +18,7 @@ they differ from this summary.
   and win-arm64: zig-zlib, zig-sqlite, zig-expat, zig-openssl,
   zig-abseil, zig-onetbb, zig-geos, zig-proj, zig-gdal; from slice 2
   batch 1 (slice2/PLAN.md) also zig-gmp (with gmpxx), zig-mpfr,
-  zig-glpk. `zig-toolchain` (linux-64) is the build tool, not for
+  zig-glpk; from batch 2 zig-nlopt, zig-udunits2. `zig-toolchain` (linux-64) is the build tool, not for
   consumers.
 - Only published builds are part of the contract. A consumer never
   depends on a libs-zig-pixi CI artifact (r-zig-pixi PR #52 removed
@@ -52,7 +52,12 @@ they differ from this summary.
   GLPK's `DllMain` as its entry point, and one that defines its own gets
   a duplicate-symbol error. No other zig-* archive defines `DllMain`.
 - `.pc` files the upstream build does not install are written by the
-  recipe (zig-glpk's `glpk.pc`, which upstream lacks).
+  recipe (zig-glpk's `glpk.pc`, zig-udunits2's `udunits2.pc`; upstream
+  has neither).
+- zig-udunits2 ships its XML database in `share/udunits/`; the library's
+  default path is the relative `share\udunits\udunits2.xml` (no prefix);
+  consumers pass a path or set `UDUNITS2_XML_PATH` (R's units ships its
+  own copy).
 
 ## 3. pkg-config files
 
@@ -146,8 +151,8 @@ a `.pc` names is in `lib/`.
   (from slice 2 on, DESIGN.md 9.1 item 4) R packages built from source
   against the new packages with r-zig from universe: the `r-consumer`
   job (build.yml; slice2/PLAN.md D113), `tests/r/install.R` then
-  `tests/r/smoke.R` (sf, terra, gdalraster, s2, gmp, Rmpfr, igraph; sf on
-  win-64 only until zig-udunits2). The publish job needs it.
+  `tests/r/smoke.R` (sf, terra, gdalraster, s2, gmp, Rmpfr, igraph,
+  nloptr, units, on both arches). The publish job needs it.
 - r-zig-pixi verifies the published builds in its stress suite after it
   updates its lock, and reports anything that breaks this contract to
   libs-zig-pixi.

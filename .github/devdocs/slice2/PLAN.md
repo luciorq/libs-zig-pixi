@@ -485,3 +485,91 @@ place of conda-forge's gmp/mpfr/glpk on Windows (igraph's win-64
 arches with an r-zig that has the zig-libs search (build 12 or a same-run
 build); drop gmp, mpfr, glpk from `rtools_has` once no win-arm64 row
 resolves them from the tree.
+
+## Batch 2: nlopt, udunits2 (branch feat-slice2-batch2)
+
+Started 2026-11-24 while PR #7 (batch 1) waits for CI, in its own worktree
+(`/data/gamma/luciorq/workspaces/temp/r-zig-pixi/wt/libs-slice2-b2`,
+branched from feat-slice2 f616781). Versions as the Rtools45 tree
+(S2-F1: nlopt 2.10.0) and r-windows/rtools-packages (udunits 2.2.28).
+
+**S2-F19 V. nlopt 2.10.0 cross-builds with its own CMake, no patch
+(2026-11-24).** Source: GitHub's tag archive (the v2.10.0 release has no
+asset), sha256 `506f83a9...237be1`. Rtools45 builds it with CMake and
+`-DNLOPT_CXX=ON` (r-windows/rtools-packages mingw-w64-nlopt PKGBUILD);
+MXE's nlopt.mk has the same options. With the toolchain file: configure,
+build and install pass on both arches ("Looking for isinf/qsort_r/syscall
+- not found" only). libnlopt.a carries the C++ algorithms: llvm-nm -u
+gives 70 `std::__1` references (pkgtest: 227 std::__1, 0 __cxx11), while
+upstream's nlopt.pc names only `-lm` in Libs.private, so build.sh adds
+`-lc++` (close-pc --libs); the C smoke program (Nelder-Mead and StoGO)
+links with the .pc's flags alone. NLoptConfig.cmake set
+NLOPT_INCLUDE_DIRS/NLOPT_LIBRARY_DIRS to the absolute host prefix (the
+imported target file is relative); build.sh rewrites them to
+`${CMAKE_CURRENT_LIST_DIR}/../../..` and fails if the prefix remains. The
+slice-1 packages' lib/cmake and lib/pkgconfig files name no host prefix
+(grep over the 12 extracted win-64 packages: 0 files). Licence
+`LGPL-2.1-or-later AND MIT` (COPYING: MIT core, luksan LGPL-2.1+).
+Recipe build: win-arm64 `zig-nlopt-2.10.0-zig_7d742f2_0`, win-64
+`zig_b870d38_0`; pkgtest all passed.
+
+**S2-F20 V. udunits 2.2.28 cross-builds through the helper, no patch, no
+cache answer (2026-11-24).** The URL Rtools and conda-forge name
+(`artifacts.unidata.ucar.edu/.../udunits-2.2.28.tar.gz`) answers 404;
+`downloads.unidata.ucar.edu/udunits/2.2.28/udunits-2.2.28.tar.gz` has the
+same sha256 (`590baec8...d579e`, the PKGBUILD's and conda-forge's).
+Rtools builds it with plain configure. With `zig-toolchain configure`,
+zig-expat (`-DXML_STATIC`, as its expat.pc) both arches configure, build
+and install (lib, include, share/udunits XML, a udunits2 program removed).
+The compiled-in default database path is the relative Windows
+`share\udunits\udunits2.xml`, not a prefix. Upstream installs no .pc and
+Rtools has none; R's units on Windows links `-ludunits2 -lexpat` directly
+(Makevars.ucrt, units 1.0-1) and ships its own XML; build.sh writes a
+udunits2.pc (Requires: expat). Licence `UCAR`. Recipe build: pkgtest all
+passed on both subdirs (smoke: an XML unit system read through expat,
+2.5 km = 2500 m).
+
+**S2-F22 V. nloptr, units and sf build from source on Windows against
+batch 2 (kappa win-64, 2026-11-24).** Env: local channel with this
+branch's 14 win-64 packages (zig-nlopt, zig-udunits2 and S2-F15's 12),
+then universe (r-zig `_11`), then conda-forge (libxml2-devel, cmake; no
+conda-forge udunits2); build 12's Rcmd_environ lines (D114), the file
+copied first (`fsutil hardlink list`: one link, so the cache was not
+touched). install.R: nloptr 2.2.1, units 1.0.1, sf 1.1.3 ok. smoke.R
+nloptr, units, sf, s2: 18/18 PASS (StoGO included). Link lines: nloptr
+`-L<zig-libs>/lib -lnlopt`, units `-L<zig-libs>/lib -ludunits2 -lexpat`.
+nloptr names no `-lc++` and links anyway (its DLL is linked as C++).
+kappa scratch removed.
+
+### Batch 2 handover (draft; confirmed after the publish run)
+
+| Package | Version | win-64 | win-arm64 |
+|---|---|---|---|
+| zig-nlopt (new) | 2.10.0 | `zig_b870d38_0` | `zig_7d742f2_0` |
+| zig-udunits2 (new) | 2.2.28 | `zig_88de710_0` | `zig_53d4c50_0` |
+
+check-alignment `--expect win-64,win-arm64` against universe: "build
+alignment OK", "published comparison OK: 29 new" (batch 1 and 2,
+unpublished). Contract changes (CONTRACT.md): section 1 names them;
+section 2: udunits2.pc written by the recipe, `share/udunits/` and the
+relative default database path; section 7: r-consumer runs sf on both
+arches. No other package changes (no toolchain change, so no rebuilds).
+
+What r-zig-pixi does: add zig-nlopt and zig-udunits2 to the Windows
+stress env; `packages.tsv`: nloptr's `nlopt@windows` becomes
+`zig-nlopt@windows`, units (and sf, lwgeom through it) take
+`zig-udunits2@windows`; lme4 follows nloptr; drop nlopt and udunits2 from
+`rtools_has` once no win-arm64 row resolves them from the tree.
+
+**S2-F21 V. gsl 2.7.1 prototype for batch 3 (manual, 2026-11-24, not in
+this batch).** sha256 `dcb0fbd4...eeb34b` (ftpmirror.gnu.org and
+ftp.gnu.org identical). r-windows/rtools-packages builds gsl with plain
+configure (its PKGBUILD says 2.7; the tree has 2.7.1, S2-F1). Through
+`zig-toolchain configure`, both arches configure, build and install with
+no patch and no cache answer: libgsl.a, libgslcblas.a (GSL's own CBLAS,
+not MKL: the win-64 fail-upstream row in r-zig-pixi is conda-forge's
+MKL gslcblas.lib), 266 headers, gsl.pc (`-lgsl -lgslcblas -lm`, neutral
+prefix for close-pc); also gsl-config, two programs, man/info pages (to
+remove). Configure: "IEEE arithmetic interface type... unknown", so
+`gsl_ieee_env_setup` has no FP-mode support on MinGW (I: as a native
+MinGW build; R's gsl package does not call it).

@@ -326,24 +326,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # sf (units -> udunits2) only where conda-forge has udunits2;
-          # win-arm64 gets it with zig-udunits2 (slice 2 batch 2)
+          # sf needs units (zig-udunits2 since slice 2 batch 2), so both
+          # arches run the same list
           - subdir: win-64
             runner: windows-latest
-            sysdeps: libxml2-devel cmake udunits2
-            packages: sf terra gdalraster s2 gmp Rmpfr igraph
+            sysdeps: libxml2-devel cmake
+            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units
           - subdir: win-arm64
             runner: windows-11-arm
             sysdeps: libxml2-devel cmake
-            packages: terra gdalraster s2 gmp Rmpfr igraph
+            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units
     env:
       SUBDIR: ${{ matrix.subdir }}
       SYSDEPS: ${{ matrix.sysdeps }}
       PACKAGES: ${{ matrix.packages }}
       # the zig-* libraries the packages link (sf, terra, gdalraster: gdal,
       # geos, proj; terra: onetbb; s2: abseil, openssl; gmp, Rmpfr, igraph:
-      # gmp, mpfr, glpk)
-      ZIG_LIBS: zig-gdal zig-geos zig-proj zig-onetbb zig-abseil zig-openssl zig-gmp zig-mpfr zig-glpk
+      # gmp, mpfr, glpk; nloptr: nlopt; units: udunits2, expat)
+      ZIG_LIBS: zig-gdal zig-geos zig-proj zig-onetbb zig-abseil zig-openssl zig-gmp zig-mpfr zig-glpk zig-nlopt zig-udunits2 zig-expat
     steps:
       - name: Defender exclusions
         shell: pwsh

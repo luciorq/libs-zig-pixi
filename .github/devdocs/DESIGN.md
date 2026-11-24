@@ -224,6 +224,8 @@ Written by `zig-toolchain close-pc` after install [consumer §1, §3]:
 | zig-openssl | Apache-2.0 | |
 | zig-gmp (slice 2) | **LGPL-3.0-or-later OR GPL-2.0-or-later** | relink obligation as GEOS |
 | zig-mpfr (slice 2) | **LGPL-3.0-or-later** | relink obligation as GEOS |
+| zig-nlopt (slice 2) | **LGPL-2.1-or-later AND MIT** | luksan (LGPL-2.1-or-later) in NLopt's COPYING; relink obligation as GEOS |
+| zig-udunits2 (slice 2) | UCAR | |
 | zig-glpk (slice 2) | **GPL-3.0-or-later** | internal zlib (Zlib), AMD and COLAMD (SuiteSparse, LGPL-2.1-or-later), MiniSat (MIT); their READMEs/LICENSE in `licenses/glpk/` |
 
   Slice 2 (slice2 PLAN.md D105, user 2026-11-23): the GPL and LGPL
