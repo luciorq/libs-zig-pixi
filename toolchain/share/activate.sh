@@ -16,8 +16,13 @@
 #                       prefix path would let find_program pick up
 #                       <sub-prefix>/bin scripts (foo-config) on the host
 #   ZIG_TOOLCHAIN_MESON_CROSS   the meson cross file (untested)
-#   ZIG_GLOBAL_CACHE_DIR ZIG_LOCAL_CACHE_DIR   under $SRC_DIR when set, so
-#                       a build never reads or writes a cache outside it
+#   ZIG_GLOBAL_CACHE_DIR  $LIBS_ZIG_CACHE when the recipe passes it (CI: one
+#                       cache per job, kept between runs; slice2 D115),
+#                       else under $SRC_DIR. Zig's cache is content
+#                       addressed: it holds the target's C runtime and
+#                       libc++, built once per cache instead of per recipe
+#   ZIG_LOCAL_CACHE_DIR   under $SRC_DIR when set, so the recipe's own
+#                       objects never come from or go to a shared cache
 case "${target_platform:-}" in
   win-64) _zt_gnu=x86_64-w64-mingw32; _zt_zig=x86_64-windows-gnu ;;
   win-arm64) _zt_gnu=aarch64-w64-mingw32; _zt_zig=aarch64-windows-gnu ;;
@@ -33,7 +38,7 @@ if [ -n "${_zt_gnu}" ]; then
   _zt_flags="-g0 -ffunction-sections -fdata-sections"
   if [ -n "${SRC_DIR:-}" ]; then
     _zt_flags="${_zt_flags} -ffile-prefix-map=${SRC_DIR}=."
-    export ZIG_GLOBAL_CACHE_DIR="${SRC_DIR}/.zig-global-cache"
+    export ZIG_GLOBAL_CACHE_DIR="${LIBS_ZIG_CACHE:-${SRC_DIR}/.zig-global-cache}"
     export ZIG_LOCAL_CACHE_DIR="${SRC_DIR}/.zig-local-cache"
   fi
   export CFLAGS="${_zt_flags}" CXXFLAGS="${_zt_flags}"

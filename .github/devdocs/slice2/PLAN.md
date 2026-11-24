@@ -68,6 +68,7 @@ per-library fallback, text below).
 | D112 | `proj.db` shipped twice (D77, S1-F11; D107 put it in this batch) | A keep both, close D77's item; B embed off, `share/proj` only (PROJ then needs PROJ_DATA: a contract change); C embedded only (sf, terra, gdalraster copy `share/proj`) | A | CONTRACT.md 2 promises both (`share/proj` and no PROJ_DATA needed); zig-proj changes only by the D108 rebuild | user ("continue with recommended") |
 | D113 | How the r-consumer job (D102) tests R packages | A own harness: a pixi env of this run's channel, universe, conda-forge with r-zig-slim, r-zig-toolchain, the zig-* libraries and conda-forge sysdeps; `tests/r/install.R` (source installs) then `tests/r/smoke.R`; per-arch package lists (sf skips win-arm64 until zig-udunits2, batch 2); default leg first; B r-zig-pixi's stress.R pinned to a commit; C no r-consumer for batch 1 | A | no CI dependency on the consumer repo; the stress suite stays r-zig-pixi's (CONTRACT.md 7) | user ("continue with recommended") |
 | D114 | r-consumer while universe's r-zig (build 11) predates the zig-libs search (S2-F13; r-zig build 12 unpublished, no date: the r-zig-pixi user batches the release) | A report-only (`continue-on-error`) plus the r-zig-pixi session's emulation of build 12 in the job (PKG_CONFIG_PATH, R_MAKEVARS_USER -I/-L, R_TOOLS_SOFT); flip to required and drop the emulation when build 12 is on universe; B report-only, no emulation (no signal until build 12); C hold the batch-1 publish until build 12 | A | signal now (S2-F14: it works on kappa); nothing blocks on the other repo's release; the r-zig-pixi session's first preference is report-only, emulation its option 2; it asked not to build r-zig from its main | default, user may revisit |
+| D115 | CI build time (S2-F23): reuse what has not changed | A a shared zig global cache per job, kept between runs (activation honours `LIBS_ZIG_CACHE`, passed by each recipe's `env.get`; pkgtest and the test command use zig's per-user cache), in this PR while zig-toolchain 0.2.0 and the build-1 bumps are unpublished; then, in its own PR, build only what universe lacks (`--skip-existing=all`, the D96 recipe check moved to the start); B the skip only; C the cache only; D prototype both first | A | the cache needs a toolchain and test-file change that is free before the batch-1 publish; archives stay byte-identical (S2-F23) | user ("Apply the recommended", 2026-11-24) |
 
 D104 in the user's words: "As soon as cross-compiling a library with
 autotools gets tricky, stop and switch that library to another path
@@ -399,6 +400,38 @@ smoke 30/30 PASS; win-arm64 installed terra, gdalraster, s2, gmp, Rmpfr,
 igraph (16.1 min), smoke 23/23 PASS, the first R evidence on win-arm64
 for gmp, Rmpfr, igraph (GLPK, libxml2) against zig-* packages. Every
 zig-* came from the run's channel (`pixi list` source column).
+
+**S2-F23 V. Where CI time goes, and the shared zig cache (2026-11-24).**
+Run 45285470540: cross win-64 51 min (gdal 15.8, geos 5.9, openssl 5.4,
+proj 4.4, gmp 3.9, abseil 3.5, onetbb 3.4, zlib 2.4, mpfr 2.0, glpk 2.0,
+expat 1.7, sqlite 1.1), win-arm64 33; test win-64 36 min, 2.2-4.1 min
+per package even for zlib: test env 43 s, `zig run pkgtest.zig` 11 s,
+one smoke link 66 s (zig builds the MinGW C runtime, and libc++ for the
+C++ packages, in the test's empty `.zig-global-cache`); the checks
+themselves take seconds. Builds also start from an empty cache per
+recipe (activation: `ZIG_GLOBAL_CACHE_DIR=$SRC_DIR/.zig-global-cache`).
+rattler-build passes the caller's environment to neither: a build sees a
+variable only through `env.get` in `build.script.env` (it is exported in
+build_env.sh before the activation scripts run), and a test sees none
+(probe package: PROBE_PLAIN, ZIG_GLOBAL_CACHE_DIR empty), but keeps HOME
+(linux) and LOCALAPPDATA, APPDATA, TEMP (kappa; USERPROFILE is set to
+SRC_DIR), so zig's per-user cache works in tests. D115 changes:
+activation `ZIG_GLOBAL_CACHE_DIR="${LIBS_ZIG_CACHE:-${SRC_DIR}/.zig-global-cache}"`
+(local cache unchanged), `LIBS_ZIG_CACHE: ${{ env.get(...) }}` in the
+12 recipes, the test command `zig run --cache-dir .zig-local-cache`
+(no `--global-cache-dir`), pkgtest no longer sets the child's
+ZIG_GLOBAL_CACHE_DIR; build.yml keeps `zig-cache` (cross) and
+`~/AppData/Local/zig` (test) with actions/cache 6.1.0, written on main
+only. Local check (gamma, win-64, LIBS_ZIG_CACHE shared): libz.a,
+libglpk.a, libgeos.a, libgeos_c.a byte-identical to the per-recipe-cache
+builds (sha256 diff empty); the cache holds 66 MB after zlib, glpk, geos;
+zig-zlib build+test 91 s with a fresh cache, 32 s with the shared one
+warm. Local gotcha: rebuilding zig-toolchain under the same file name
+left rattler's package cache with the old extraction and the channel's
+repodata with the old sha256 ("hash mismatch when extracting"); fixed by
+deleting the cache entry and `rattler-index fs --force`. CI starts empty,
+so it is unaffected. Not measured: CI times with the cache (next run
+fills it; PR runs read main's).
 
 ## Known risks (from slice 1 and M5)
 

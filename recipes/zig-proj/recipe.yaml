@@ -37,6 +37,9 @@ build:
       # ziglang's zig; empty means the build env's conda-forge zig
       ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
       ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
       ZIG_VERSION: ${{ zig }}
 
 requirements:
@@ -90,7 +93,7 @@ tests:
   # libproj.a (--unique-c-symbols, DESIGN R5), no dllexport directives.
   # One plain command for bash (linux) and cmd.exe (Windows).
   - script:
-      - zig run --global-cache-dir .zig-global-cache --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --libcxx --unique-c-symbols --no-dllexport ${{ zt }} proj zig-libs-tests/smoke/proj.c
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --libcxx --unique-c-symbols --no-dllexport ${{ zt }} proj zig-libs-tests/smoke/proj.c
     files:
       source:
         - zig-libs-tests/pkgtest.zig

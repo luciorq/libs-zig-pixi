@@ -161,6 +161,10 @@ jobs:
     env:
       SUBDIR: ${{ matrix.subdir }}
       PIXI_ENV: ${{ matrix.env }}
+      # one zig global cache for every recipe of the job (the target's C
+      # runtime and libc++, built once; slice2 D115), passed to the build
+      # scripts by each recipe's LIBS_ZIG_CACHE env.get
+      LIBS_ZIG_CACHE: ${{ github.workspace }}/zig-cache
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -171,6 +175,16 @@ jobs:
           environments: ${{ matrix.env }}
           cache: true
           cache-write: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
+      # kept between runs as setup-pixi's cache: written on main only, read
+      # everywhere; zig's cache is content addressed, so an older one is
+      # only a smaller head start
+      - uses: actions/cache/restore@v6.1.0
+        with:
+          path: zig-cache
+          key: zig-cross-${{ matrix.subdir }}-${{ matrix.env }}-${{ hashFiles('variants.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            zig-cross-${{ matrix.subdir }}-${{ matrix.env }}-${{ hashFiles('variants.yaml') }}-
+            zig-cross-${{ matrix.subdir }}-${{ matrix.env }}-
       # the toolchain job's channel (linux-64 zig-toolchain built by the
       # same env's zig), as the start of this job's channel
       - uses: actions/download-artifact@v8.0.2
@@ -185,6 +199,11 @@ jobs:
         with:
           log: build.log
           env: ${{ matrix.env }}
+      - uses: actions/cache/save@v6.1.0
+        if: github.event_name == 'push' && github.ref_name == 'main'
+        with:
+          path: zig-cache
+          key: zig-cross-${{ matrix.subdir }}-${{ matrix.env }}-${{ hashFiles('variants.yaml') }}-${{ github.sha }}
       - name: Drop work trees before upload
         if: always()
         run: rm -rf "out/$PIXI_ENV/bld" "out/$PIXI_ENV/src_cache" "out/$PIXI_ENV/test"
@@ -238,6 +257,16 @@ jobs:
         with:
           name: channel-${{ matrix.subdir }}-${{ matrix.env }}
           path: channel
+      # zig's per-user global cache, which every package's pkgtest shares
+      # (the C runtime and libc++ for the smoke links, pkgtest.zig itself;
+      # slice2 D115): the test env keeps LOCALAPPDATA. Written on main only.
+      - uses: actions/cache/restore@v6.1.0
+        with:
+          path: ~/AppData/Local/zig
+          key: zig-test-${{ matrix.subdir }}-${{ matrix.env }}-${{ hashFiles('variants.yaml', 'tests/pkgtest.zig') }}-${{ github.sha }}
+          restore-keys: |
+            zig-test-${{ matrix.subdir }}-${{ matrix.env }}-${{ hashFiles('variants.yaml', 'tests/pkgtest.zig') }}-
+            zig-test-${{ matrix.subdir }}-${{ matrix.env }}-
       # Each package's stored tests (recipes/*/recipe.yaml `tests:`): for a
       # library, tests/pkgtest.zig, run with this subdir's conda-forge zig,
       # pkgconf (and llvm-tools for the C++ libraries), which links the
@@ -266,6 +295,11 @@ jobs:
           done
           echo "$n package(s) tested, ${#failed[@]} failed: ${failed[*]}"
           [ "$n" -gt 0 ] && [ "${#failed[@]}" -eq 0 ]
+      - uses: actions/cache/save@v6.1.0
+        if: always() && github.event_name == 'push' && github.ref_name == 'main'
+        with:
+          path: ~/AppData/Local/zig
+          key: zig-test-${{ matrix.subdir }}-${{ matrix.env }}-${{ hashFiles('variants.yaml', 'tests/pkgtest.zig') }}-${{ github.sha }}
 
   # R packages built from source against this run's packages (DESIGN 9.1
   # item 4; slice2 PLAN.md D102, D113): r-zig-slim and r-zig-toolchain

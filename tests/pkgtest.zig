@@ -6,7 +6,7 @@
 //! test's build env (m2-bash, which linux cannot install), so the script
 //! line is the same plain command for both shells:
 //!
-//!   zig run --global-cache-dir .zig-global-cache --cache-dir .zig-local-cache
+//!   zig run --cache-dir .zig-local-cache
 //!     zig-libs-tests/pkgtest.zig -- [<options>] <zig triple> <pc modules>
 //!     [<smoke source>...]
 //!
@@ -227,11 +227,13 @@ pub fn main(init: std.process.Init) !u8 {
         return 1;
     }
 
-    // zig cc below: its caches in the test directory, as the zig run above
+    // zig cc below: its local cache in the test directory, as the zig run
+    // above; the global cache (the target's C runtime and libc++, content
+    // addressed) is zig's per-user one, or $ZIG_GLOBAL_CACHE_DIR when set,
+    // so every package test of one job builds them once (slice2 D115)
     var child_env = try env.clone(a);
     const cwd_path = try std.process.currentPathAlloc(io, a);
     try child_env.put("PKG_CONFIG_LIBDIR", pcdir);
-    try child_env.put("ZIG_GLOBAL_CACHE_DIR", try std.fs.path.join(a, &.{ cwd_path, ".zig-global-cache" }));
     try child_env.put("ZIG_LOCAL_CACHE_DIR", try std.fs.path.join(a, &.{ cwd_path, ".zig-local-cache" }));
 
     // 1. pkgconf
