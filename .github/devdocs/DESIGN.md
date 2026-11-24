@@ -240,6 +240,8 @@ Written by `zig-toolchain close-pc` after install [consumer §1, §3]:
 | zig-freetype (slice 2) | FTL OR GPL-2.0-or-later | FTL's credit clause ("Portions of this software are copyright The FreeType Project") |
 | zig-fribidi (slice 2) | **LGPL-2.1-or-later** | relink obligation as GEOS |
 | zig-harfbuzz (slice 2) | MIT | |
+| zig-libiconv (slice 2) | **LGPL-2.1-or-later** (the library; the GPL-3.0 iconv program is not shipped) | relink obligation as GEOS |
+| zig-libxml2 (slice 2) | MIT | |
 | zig-glpk (slice 2) | **GPL-3.0-or-later** | internal zlib (Zlib), AMD and COLAMD (SuiteSparse, LGPL-2.1-or-later), MiniSat (MIT); their READMEs/LICENSE in `licenses/glpk/` |
 
   Slice 2 (slice2 PLAN.md D105, user 2026-11-23): the GPL and LGPL

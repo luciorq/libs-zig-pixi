@@ -78,6 +78,7 @@ per-library fallback, text below).
 | D122 | Text stack scope: Rtools45 builds libtiff with zstd, xz/lzma, LERC, libdeflate (and jpeg, webp, zlib), freetype with brotli, bzip2, harfbuzz (and png, zlib), harfbuzz with glib (intl, iconv, pcre2) | A minimal: only zig-* deps (libtiff zlib/jpeg/webp; freetype zlib/png; harfbuzz freetype); B A plus zig-zstd, zig-xz, zig-libdeflate, zig-brotli, zig-bzip2: Rtools45's features except LERC and glib; C everything Rtools45 has, glib and a freetype/harfbuzz two-pass build included | B, dated 2026-11-24 | the compression libraries also serve the data stack (hdf5, netcdf, curl); glib is a large build for features no R package here uses | user |
 | D123 | zig names a `-c` output without `-o` `<stem>.obj` for Windows (S2-F29) | A zig-toolchain's cc/c++ wrapper appends `-o <stem>.o`, as MinGW gcc and rzig (r-zig-pixi fix-stress-round1 S7, objSuffix); B per-recipe overrides (zig-bzip2's `CC="$CC -o $@"`) | A, dated 2026-11-24 | the same rule as r-zig's; bzip2's override goes, and PostgreSQL's autotools OBJEXT problem (S2-F26) would not have arisen. Autotools builds now see OBJEXT=o; zig-toolchain 0.2.0 is unpublished, so no version change | mine |
 | D124 | CRAN jpeg needs LOCAL_SOFT, which r-zig build 12 leaves empty (S2-F30) | A the r-consumer install step sets LOCAL_SOFT to the env's zig-libs tree and the finding goes to r-zig-pixi (whose Rcmd_environ could default it, as it does R_TOOLS_SOFT); B drop jpeg from r-consumer until r-zig decides; C nothing in CI, a CONTRACT note only | A, dated 2026-11-24 (default, vetoable) | jpeg is the only package of the 18 that reads LOCAL_SOFT; one env line in one step, removed when r-zig sets it; the libraries are not at fault. The r-zig-pixi session (2026-11-24): LOCAL_SOFT was left empty only to keep the Rtools45 sysroot away from zig (LOCAL_CPPFLAGS -I on every compile), which does not apply to zig-libs; r-zig build 13 (r-zig-pixi PR #57) defaults it to R_ZIG_LIBS and turns `-I<zig-libs>/include` into -idirafter; the workaround stands until build 13 is published | mine, r-zig-pixi agreed |
+| D125 | libxml2 2.12.10 scope (Rtools45: zlib, lzma, GNU libiconv) | A zlib and lzma only (built-in UTF-8/16, Latin-1, ASCII); B A plus a new zig-libiconv 1.17 (LGPL), Rtools45 parity; C ICU for encodings | B, dated 2026-11-24 | documents in any encoding parse (xml2, igraph); libiconv is a small autotools build; ICU is a large C++ build no R package here needs | user |
 
 D104 in the user's words: "As soon as cross-compiling a library with
 autotools gets tricky, stop and switch that library to another path
@@ -761,3 +762,38 @@ codecs blur (jpeg mean error 0.107); a smooth gradient gives 0.0028
 (jpeg) and 0.0036 (webp). With it, all 16 checks pass (gsl 3, png, jpeg,
 tiff 4, webp, systemfonts, textshaping 2, ragg 3). The scratch directory
 was removed afterwards.
+
+**S2-F31 V. zig-libiconv 1.17 and zig-libxml2 2.12.10 (D125 B;
+2026-11-24, gamma and kappa).** libiconv through the configure helper
+(`--disable-nls`), only libcharset and lib/ with their own install targets
+(no iconv program, po/ or man/); iconv.pc written by the recipe (the name
+Rtools45's tree ships; libiconv.a carries locale_charset, so `-liconv`
+alone links). Its resource object is skipped (`OBJECTS_RES_yes=`):
+windres-options --escape writes `-DPACKAGE_VERSION_STRING=\"1.17\"` for
+GNU windres, whose shell strips the backslashes; zig rc takes them as is
+("libiconv.rc:25:34: error: expected '<'}' or END>', got '\'"). It is
+iconv.dll's VERSIONINFO, never linked from an archive. Sent to the
+r-zig-pixi session (rzig's windres). libxml2 through the helper with
+`--with-zlib --with-lzma --with-iconv --without-icu --without-python`;
+configure silently turns an option off when its library is missing, so
+the build fails unless the Makefile has `WITH_ZLIB/LZMA/ICONV = 1`. Only
+libxml2.la, the headers and libxml-2.0.pc are installed (no xmllint,
+xmlcatalog, xml2-config, CMake config). libxml-2.0.pc: `Requires: zlib
+liblzma iconv` (iconv added: libxml/encoding.h includes <iconv.h> from
+include/), `Libs: -lxml2 -liconv -lm -lws2_32`, `Cflags:
+-I${includedir}/libxml2 -DLIBXML_STATIC`. Builds: libiconv win-64
+`zig_4bc333d_0`, win-arm64 `zig_ba8ed4a_0`; libxml2 `zig_5cd7389_0` /
+`zig_3753072_0`; recipe tests pass on all four (pkgtest: no build path, 0
+duplicate symbols, no -export: directive). kappa win-64:
+tests/smoke/libiconv.c (ISO-8859-1, SHIFT_JIS, EUC-JP to UTF-8, EILSEQ)
+and tests/smoke/libxml2.c (ISO-8859-1 and Shift_JIS documents, XPath,
+gzip and xz files) print OK. An env without conda-forge libxml2-devel
+(r-zig build 12, zig-libxml2, zig-glpk, zig-gmp): CRAN xml2 1.6.0 and
+igraph 2.3.4 install from source; xml2 compiles with only zig-libs'
+include/libxml2 and links `-lxml2 -lm -lws2_32 -lz -llzma -liconv` with
+zig-libs as the only -L besides R's; tests/r/smoke.R xml2 igraph passes
+7/7 (Shift_JIS through iconv, a gzip file through zlib, igraph's GraphML).
+conda-forge libxml2 2.15.4 is in that env only as a dependency of
+conda-forge zig (zig_impl_win-64, through r-zig-compilers): a DLL, no .pc,
+no import library on the -L path. r-consumer drops libxml2-devel and adds
+xml2. The scratch directory was removed.
