@@ -222,6 +222,18 @@ Written by `zig-toolchain close-pc` after install [consumer §1, §3]:
 | zig-abseil | Apache-2.0 | |
 | zig-onetbb | Apache-2.0 | |
 | zig-openssl | Apache-2.0 | |
+| zig-gmp (slice 2) | **LGPL-3.0-or-later OR GPL-2.0-or-later** | relink obligation as GEOS |
+| zig-mpfr (slice 2) | **LGPL-3.0-or-later** | relink obligation as GEOS |
+| zig-glpk (slice 2) | **GPL-3.0-or-later** | internal zlib (Zlib), AMD and COLAMD (SuiteSparse, LGPL-2.1-or-later), MiniSat (MIT); their READMEs/LICENSE in `licenses/glpk/` |
+
+  Slice 2 (slice2 PLAN.md D105, user 2026-11-23): the GPL and LGPL
+  libraries the Rtools45 tree served without redistributing them (gsl and
+  glpk GPL-3.0-or-later; gmp, mpfr LGPL-3.0-or-later) are shipped like any
+  other zig-* package, with their licence files in `licenses/<pkg>/`, as
+  conda-forge ships them. A static archive inside an R package DLL makes
+  that DLL a combined work: the R packages that link gsl or glpk (gsl,
+  igraph) are GPL themselves; for binary redistribution (Phase 3) the
+  LGPL relink obligation applies as for GEOS. Rows are added per recipe.
 
   `about` links the recipe repo, which holds the exact source URLs, hashes and patches.
 
@@ -298,7 +310,7 @@ The Rtools `libsqlite3.a` compile options (`strings`, V [review H2]):
 - **Missing network features** (no curl): `/vsicurl` and other `/vsi*` network handlers, `sf_proj_network(TRUE)` / PROJ CDN grids, gdalraster's vsicurl tests, WMS/WMTS/WFS/OGC API drivers. Tests touching them fail or skip (R13) [review L10].
 
 ### 6.4 Slice 2 candidates and existing zig ports
-The AYCB GitHub org (130 public repos, V) has ports of libraries slice 2 needs; the Codeberg org has 15 repos, none in this stack [review §0] V. They are references or fallbacks under D1, each pinned to a commit; AYCB is moving to Codeberg, so pinned GitHub commits may be archived (I).
+The AYCB GitHub org (130 public repos, V) has ports of libraries slice 2 needs; the Codeberg org has 15 repos, none in this stack [review §0] V. They are references or fallbacks under D1, each pinned to a commit. Re-checked 2026-11-23 (slice2 PLAN.md S2-F4..F7, PORTS.md): the Codeberg org still has the same 15 repos; the GitHub AYCB repos are not archived and get commits (boringssl 2026-11-09, libpng 2026-11-06, curl 2026-10-12, "upgrade to zig 0.17.0"), with no move notice. A fallback port (slice2 D104 C) may come from any host, maintained and pinned to a commit (slice2 D111). No surveyed port installs a `.pc` or CMake package files, so a recipe that uses one writes them.
 
 | Library | Use in slice 2 | Zig port (AYCB) |
 |---|---|---|
@@ -315,7 +327,7 @@ The AYCB GitHub org (130 public repos, V) has ports of libraries slice 2 needs; 
 | xz (liblzma) | GTiff LZMA | no xz port; fast-lzma2 (an LZMA2 encoder, not liblzma) |
 | libdeflate, libwebp | GTiff codecs | not in the AYCB list (`review/aycb-github-repos.txt`); other orgs unsearched (below) |
 
-The non-AYCB port search stopped at `HTTP 403: API rate limit exceeded` on the `sqlite` query (`zig-ports/ghsearch.txt:48`) V, so later queries never ran; Codeberg-wide search returned non-JSON. Re-run authenticated before slice 2 and record it in that slice's PLAN.md.
+The non-AYCB port search stopped at `HTTP 403: API rate limit exceeded` on the `sqlite` query (`zig-ports/ghsearch.txt:48`) V, so later queries never ran; Codeberg-wide search returned non-JSON. Re-run 2026-11-23 (authenticated GitHub, 82 repo and 34 code searches; Codeberg through its explore pages, its search API answered 429): slice2/PORTS.md.
 
 ### 6.5 Slice-wide risks
 PROJ's static CMake config and SQLite (R5); GDAL finding host copies (mitigated by 4.3's root path); oneTBB on aarch64 MinGW (R8); duplicate symbols between internal copies and the rest (M3 check).

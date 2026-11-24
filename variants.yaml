@@ -17,7 +17,7 @@ zig:
 # leaves the wrapper flags, activation script and CMake/meson files as they
 # were keeps the version (PLAN.md D37).
 zig_toolchain:
-  - "0.1.0"
+  - "0.2.0"
 
 # Build tools from conda-forge that shape a package's files: exact, and
 # each recipe that runs one requires `<tool> ==${{ <key> }}`, so the key is
@@ -42,6 +42,14 @@ make:
   - "4.4.1"
 sqlite:
   - "3.54.1"
+# autotools recipes through `zig-toolchain configure` (slice2 D104): m4
+# (gmp's configure needs it even with --disable-assembly) and llvm-tools
+# (llvm-nm as NM: gmp's x86 configure reads its assembler probes with nm).
+# Versions as resolved 2026-11-23 (slice2 PLAN.md S2-F3).
+m4:
+  - "1.4.21"
+llvm_tools:
+  - "23.1.6"
 
 # Upstream versions: Rtools45 build 6768 (D9). Each recipe reads its own
 # key (zlib_version, ...) in its context, so the version is only here; the
@@ -65,3 +73,10 @@ onetbb_version:
   - "2022.2.0"
 openssl_version:
   - "3.6.0"
+# slice 2: Rtools45 build 6768 aarch64 (slice2 PLAN.md S2-F1)
+gmp_version:
+  - "6.3.0"
+mpfr_version:
+  - "4.2.2"
+glpk_version:
+  - "5.0"

@@ -18,7 +18,9 @@ sqlite = "*"
 # LIBS_ZIG_OUT: rattler-build's output dir and local channel (file://).
 # The default is the gitignored output/ in the workspace; a machine with a
 # bigger scratch disk sets LIBS_ZIG_OUT (and RATTLER_CACHE_DIR,
-# ZIG_GLOBAL_CACHE_DIR) in its own shell profile, never here. The
+# ZIG_GLOBAL_CACHE_DIR) in its own shell profile, never here. LIBS_ZIG_CACHE
+# (optional) is one zig global cache for every recipe build (CI sets it,
+# slice2 D115); unset, each build keeps its own under SRC_DIR. The
 # `${VAR:-default}` form keeps a value set by the caller.
 # ZIG_BIN is cleared: the default env is the published leg and always runs
 # the build env's conda-forge zig (D11), even when the caller's shell
@@ -40,7 +42,8 @@ cmd = "rattler-build build --recipe recipes/{{ recipe }} --target-platform {{ su
 # depends-on in the order listed. A new recipe is one line here. CI runs
 # this (build.yml), so the list lives only here. zig-openssl needs
 # zig-zlib; zig-proj zig-sqlite; zig-gdal zig-proj, zig-geos, zig-sqlite,
-# zig-expat and zig-zlib (their host requirements).
+# zig-expat and zig-zlib; zig-mpfr and zig-glpk need zig-gmp (their host
+# requirements).
 [tasks.build-libs]
 description = "Build every library recipe for <subdir> (win-64 | win-arm64), in dependency order"
 args = [{ arg = "subdir", default = "win-64" }]
@@ -54,6 +57,9 @@ depends-on = [
   { task = "build", args = ["zig-geos", "{{ subdir }}"] },
   { task = "build", args = ["zig-proj", "{{ subdir }}"] },
   { task = "build", args = ["zig-gdal", "{{ subdir }}"] },
+  { task = "build", args = ["zig-gmp", "{{ subdir }}"] },
+  { task = "build", args = ["zig-mpfr", "{{ subdir }}"] },
+  { task = "build", args = ["zig-glpk", "{{ subdir }}"] },
 ]
 
 # One build number per package across subdirs (D17, CONVENTIONS.md). The

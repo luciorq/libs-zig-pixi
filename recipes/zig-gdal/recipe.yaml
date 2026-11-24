@@ -38,7 +38,7 @@ source:
     target_directory: zig-libs-tests
 
 build:
-  number: 0
+  number: 1
   string: zig_${{ hash }}_${{ build_number }}
   script:
     file: build.sh
@@ -47,6 +47,9 @@ build:
       # ziglang's zig; empty means the build env's conda-forge zig
       ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
       ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
       ZIG_VERSION: ${{ zig }}
 
 requirements:
@@ -108,7 +111,7 @@ tests:
   # library), no dllexport directives. One plain command for bash (linux)
   # and cmd.exe (Windows).
   - script:
-      - zig run --global-cache-dir .zig-global-cache --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --libcxx --unique-c-symbols --no-dllexport --forbid -lstdc++ ${{ zt }} gdal zig-libs-tests/smoke/gdal.c
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --libcxx --unique-c-symbols --no-dllexport --forbid -lstdc++ ${{ zt }} gdal zig-libs-tests/smoke/gdal.c
     files:
       source:
         - zig-libs-tests/pkgtest.zig

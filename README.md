@@ -2,7 +2,7 @@
 
 Third-party C and C++ libraries rebuilt with `zig cc` / `zig c++` and published as conda packages.
 
-**Status: pre-release.** Nothing is published yet. The first slice targets win-64 and win-arm64 with zlib, sqlite, expat, geos, proj, gdal, abseil, oneTBB and OpenSSL, so that the R packages sf, terra, gdalraster and s2 build from source with [r-zig](https://github.com/luciorq/r-zig-pixi) on Windows.
+**Status:** published on prefix.dev `universe` for win-64 and win-arm64. The first slice (zlib, sqlite, expat, geos, proj, gdal, abseil, oneTBB, OpenSSL) lets the R packages sf, terra, gdalraster and s2 build from source with [r-zig](https://github.com/luciorq/r-zig-pixi) on Windows. Slice 2 replaces the Rtools45 libraries r-zig still borrows on win-arm64; its first batch adds gmp, mpfr and glpk (gmp, Rmpfr, igraph).
 
 ## Why
 

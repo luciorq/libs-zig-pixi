@@ -1,0 +1,107 @@
+# zig-gmp: GNU MP (libgmp and the C++ bindings libgmpxx), static only, for
+# Windows (win-64, win-arm64), cross-built on linux with zig-toolchain
+# through GMP's own autotools configure (D1), run by `zig-toolchain
+# configure` (slice2 D104). Generic C, no assembly (--disable-assembly).
+# Installed under the private sub-prefix Library/zig-libs/<zig triple>/
+# (D2): lib/{libgmp,libgmpxx}.a, include/{gmp,gmpxx}.h,
+# lib/pkgconfig/{gmp,gmpxx}.pc (closed, relocatable; gmpxx names -lc++),
+# licenses/gmp/.
+context:
+  # Rtools45 build 6768 (slice2 S2-F1), variants.yaml
+  version: ${{ gmp_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-gmp
+  version: ${{ version }}
+
+source:
+  - url:
+      - https://ftp.gnu.org/gnu/gmp/gmp-${{ version }}.tar.xz
+      - https://ftpmirror.gnu.org/gnu/gmp/gmp-${{ version }}.tar.xz
+    sha256: a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898
+  # the package test (tests/pkgtest.zig, tests/smoke/gmp.{c,cpp}), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # configure and make; exact: puts make, m4 and llvm_tools in the hash
+    # (variants.yaml). llvm-nm is configure's NM (zig-toolchain configure).
+    - make ==${{ make }}
+    - m4 ==${{ m4 }}
+    - llvm-tools ==${{ llvm_tools }}
+  run_exports:
+    weak:
+      - ${{ pin_subpackage("zig-gmp", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libgmp.a
+          - ${{ sub }}/lib/libgmpxx.a
+          - ${{ sub }}/include/gmp.h
+          - ${{ sub }}/include/gmpxx.h
+          - ${{ sub }}/lib/pkgconfig/gmp.pc
+          - ${{ sub }}/lib/pkgconfig/gmpxx.pc
+          - ${{ sub }}/licenses/gmp/COPYING.LESSERv3
+          - ${{ sub }}/licenses/gmp/COPYINGv2
+          - ${{ sub }}/licenses/gmp/COPYINGv3
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library; no libtool archives, no info pages
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.la"
+          - ${{ sub }}/share/info/**
+  # tests/pkgtest.zig (its header says what it checks): gmpxx.pc pulls
+  # gmp.pc through Requires and names -lc++; the relocated .pc files
+  # resolve to existing paths, no absolute prefix in them, no build path in
+  # the archives, libc++ only, no dllexport directive (a static GMP leaves
+  # __GMP_DECLSPEC empty), and tests/smoke/gmp.c and gmp.cpp link (and run,
+  # on Windows of the same arch). One plain command for bash (linux) and
+  # cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --libcxx --unique-c-symbols --no-dllexport --require -lc++ --forbid -lstdc++ ${{ zt }} gmpxx zig-libs-tests/smoke/gmp.c zig-libs-tests/smoke/gmp.cpp
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/gmp.c
+        - zig-libs-tests/smoke/gmp.cpp
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://gmplib.org/
+  license: LGPL-3.0-or-later OR GPL-2.0-or-later
+  license_file:
+    - COPYING.LESSERv3
+    - COPYINGv2
+    - COPYINGv3
+  summary: GNU MP (libgmp, libgmpxx), static libraries for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://gmplib.org/repo/gmp/

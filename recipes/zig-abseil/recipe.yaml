@@ -27,7 +27,7 @@ source:
     target_directory: zig-libs-tests
 
 build:
-  number: 0
+  number: 1
   string: zig_${{ hash }}_${{ build_number }}
   script:
     file: build.sh
@@ -36,6 +36,9 @@ build:
       # ziglang's zig; empty means the build env's conda-forge zig
       ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
       ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
       ZIG_VERSION: ${{ zig }}
 
 requirements:
@@ -83,7 +86,7 @@ tests:
   # (and runs, on Windows of the same arch). One plain command for bash
   # (linux) and cmd.exe (Windows).
   - script:
-      - zig run --global-cache-dir .zig-global-cache --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --libcxx --unique-c-symbols --no-dllexport --require -ladvapi32 --require -ldbghelp --require -lbcrypt --forbid -Wnon-virtual-dtor ${{ zt }} absl_base,absl_btree,absl_check,absl_cord,absl_core_headers,absl_dynamic_annotations,absl_flags,absl_flat_hash_map,absl_flat_hash_set,absl_hash,absl_inlined_vector,absl_int128,absl_log,absl_log_severity,absl_memory,absl_span,absl_str_format,absl_strings,absl_type_traits,absl_utility,absl_vlog_is_on,absl_status,absl_statusor,absl_synchronization,absl_time,absl_optional,absl_random_random zig-libs-tests/smoke/abseil.cpp
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --libcxx --unique-c-symbols --no-dllexport --require -ladvapi32 --require -ldbghelp --require -lbcrypt --forbid -Wnon-virtual-dtor ${{ zt }} absl_base,absl_btree,absl_check,absl_cord,absl_core_headers,absl_dynamic_annotations,absl_flags,absl_flat_hash_map,absl_flat_hash_set,absl_hash,absl_inlined_vector,absl_int128,absl_log,absl_log_severity,absl_memory,absl_span,absl_str_format,absl_strings,absl_type_traits,absl_utility,absl_vlog_is_on,absl_status,absl_statusor,absl_synchronization,absl_time,absl_optional,absl_random_random zig-libs-tests/smoke/abseil.cpp
     files:
       source:
         - zig-libs-tests/pkgtest.zig

@@ -1,0 +1,105 @@
+# zig-glpk: GNU GLPK, static only, for Windows (win-64, win-arm64),
+# cross-built on linux with zig-toolchain through GLPK's own autotools
+# configure (D1), run by `zig-toolchain configure` (slice2 D104), on
+# zig-gmp (--with-gmp) and with GLPK's own Windows code (-D__WOE__), as
+# CRAN's Rtools45 build (slice2 S2-F12). Installed under the private
+# sub-prefix Library/zig-libs/<zig triple>/ (D2): lib/libglpk.a,
+# include/glpk.h, lib/pkgconfig/glpk.pc (written here: upstream installs
+# none; closed, relocatable, Requires: gmp), licenses/glpk/.
+context:
+  # Rtools45 build 6768 (slice2 S2-F1), variants.yaml
+  version: ${{ glpk_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-glpk
+  version: ${{ version }}
+
+source:
+  - url:
+      - https://ftp.gnu.org/gnu/glpk/glpk-${{ version }}.tar.gz
+      - https://ftpmirror.gnu.org/gnu/glpk/glpk-${{ version }}.tar.gz
+    sha256: 4a1013eebb50f728fc601bdd833b0b2870333c3b3e5a816eeba921d95bec6f15
+  # the package test (tests/pkgtest.zig, tests/smoke/glpk.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # configure and make; exact: puts make and llvm_tools in the hash
+    # (variants.yaml). llvm-nm is configure's NM (zig-toolchain configure).
+    - make ==${{ make }}
+    - llvm-tools ==${{ llvm_tools }}
+  host:
+    - zig-gmp
+  run_exports:
+    weak:
+      - ${{ pin_subpackage("zig-glpk", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libglpk.a
+          - ${{ sub }}/include/glpk.h
+          - ${{ sub }}/lib/pkgconfig/glpk.pc
+          - ${{ sub }}/licenses/glpk/COPYING
+          - ${{ sub }}/licenses/glpk/amd-README
+          - ${{ sub }}/licenses/glpk/colamd-README
+          - ${{ sub }}/licenses/glpk/minisat-LICENSE
+          - ${{ sub }}/licenses/glpk/zlib-README
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library; no libtool archive, no glpsol program
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.la"
+          - "**/*.exe"
+          - ${{ sub }}/bin/**
+  # tests/pkgtest.zig (its header says what it checks): glpk.pc pulls
+  # zig-gmp's gmp.pc through Requires and names -luser32 (MessageBoxA in
+  # GLPK's DllMain); the relocated .pc resolves to existing paths, no
+  # absolute prefix in it, no build path in the archives, no C symbol in
+  # both libglpk.a and libgmp.a (GLPK's internal zlib is prefixed
+  # _glp_zlib_), no dllexport directive, and tests/smoke/glpk.c links (and
+  # runs, on Windows of the same arch: an LP by simplex and by the exact
+  # GMP simplex). One plain command for bash (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -lgmp --require -luser32 ${{ zt }} glpk zig-libs-tests/smoke/glpk.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/glpk.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://www.gnu.org/software/glpk/
+  license: GPL-3.0-or-later
+  license_file: COPYING
+  summary: GNU GLPK (linear programming kit), static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://ftp.gnu.org/gnu/glpk/
