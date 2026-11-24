@@ -1,0 +1,29 @@
+From Rtools45's MXE (R-dev-web trunk WindowsBuilds/winutf8/ucrt3/toolchain_libs/
+mxe/src/postgresql-2-use-mingw-setjmp-on-ucrt.patch, Tomas Kalibera), unchanged:
+on UCRT (zig's MinGW defines _UCRT) sigsetjmp is setjmp, not gcc's
+__builtin_setjmp, which clang rejects on aarch64 and for the sigjmp_buf type
+(slice2 PLAN.md S2-F27, D121).
+
+diff --git a/src/include/c.h b/src/include/c.h
+index c8ede08..e445524 100644
+--- a/src/include/c.h
++++ b/src/include/c.h
+@@ -1360,15 +1360,15 @@ extern unsigned long long strtoull(const char *str, char **endptr, int base);
+  * so on that toolchain we cheat and use gcc's builtins.
+  */
+ #ifdef WIN32
+-#ifdef __MINGW64__
++#if defined(__MINGW64__) && !defined(_UCRT)
+ typedef intptr_t sigjmp_buf[5];
+ #define sigsetjmp(x,y) __builtin_setjmp(x)
+ #define siglongjmp __builtin_longjmp
+-#else							/* !__MINGW64__ */
++#else							/* !defined(__MINGW64__) || defined(_UCRT) */
+ #define sigjmp_buf jmp_buf
+ #define sigsetjmp(x,y) setjmp(x)
+ #define siglongjmp longjmp
+-#endif							/* __MINGW64__ */
++#endif							/* defined(__MINGW64__) && !defined(_UCRT) */
+ #endif							/* WIN32 */
+ 
+ /* /port compatibility functions */

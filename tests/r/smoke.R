@@ -1,13 +1,16 @@
 # Smoke test of the R packages that link the zig-* libraries (DESIGN 9.2,
-# M4; slice 2 adds gmp, Rmpfr, igraph, nloptr, units, gsl): sf, terra,
-# gdalraster, s2, gmp, Rmpfr, igraph, nloptr, units, gsl. Run it with the R that
+# M4; slice 2 adds gmp, Rmpfr, igraph, nloptr, units, gsl, RPostgres): sf,
+# terra, gdalraster, s2, gmp, Rmpfr, igraph, nloptr, units, gsl, RPostgres.
+# RPostgres' query checks need a server: R_SMOKE_PG names one as libpq
+# connection keywords (e.g. "host=127.0.0.1 port=5432 user=postgres
+# dbname=postgres"); without it they are left out. Run it with the R that
 # installed them:
 #   Rscript tests/r/smoke.R [package ...]      (default: all of them)
 # Each check prints one "SMOKE <name> PASS|FAIL|ERROR" line; the script
 # exits with status 1 when any check is not PASS. First run: kappa win-64,
 # 2026-11-22 (r-zig-pixi feat-zig-libs PLAN.md).
 args <- commandArgs(trailingOnly = TRUE)
-pkgs <- if (length(args)) args else c("sf", "terra", "gdalraster", "s2", "gmp", "Rmpfr", "igraph", "nloptr", "units", "gsl")
+pkgs <- if (length(args)) args else c("sf", "terra", "gdalraster", "s2", "gmp", "Rmpfr", "igraph", "nloptr", "units", "gsl", "RPostgres")
 
 res <- character()
 chk <- function(name, expr) {
@@ -232,6 +235,34 @@ if ("gsl" %in% pkgs) {
     v <- tryCatch(bessel_Kn(-1, 0), error = function(e) NaN, warning = function(w) NaN)
     is.nan(v) || is.infinite(v)
   })
+}
+
+# slice 2: zig-libpq (RPostgres, through zig-openssl)
+if ("RPostgres" %in% pkgs) {
+  library(DBI)
+  chk("RPostgres: libpq 16.10 (PQlibVersion)", {
+    RPostgres:::client_version() == 160010L
+  })
+  chk("RPostgres: a refused connection is an error", {
+    !dbCanConnect(RPostgres::Postgres(), host = "127.0.0.1", port = 1L,
+                  connect_timeout = 5L, sslmode = "disable")
+  })
+  pg <- Sys.getenv("R_SMOKE_PG")
+  if (nzchar(pg)) {
+    kv <- regmatches(pg, gregexpr("[^ =]+=[^ ]*", pg))[[1]]
+    args <- setNames(as.list(sub("^[^=]+=", "", kv)), sub("=.*$", "", kv))
+    con <- do.call(dbConnect, c(list(RPostgres::Postgres()), args))
+    chk("RPostgres: query round trip (server)", {
+      r <- dbGetQuery(con, "SELECT 1 + 1 AS two, 'zig'::text AS s, now() IS NOT NULL AS t")
+      r$two == 2 && r$s == "zig" && isTRUE(r$t)
+    })
+    chk("RPostgres: write and read a table, bytea and numeric", {
+      dbWriteTable(con, "zig_smoke", data.frame(x = c(1.5, 2.5), y = c("a", "b")), temporary = TRUE)
+      sum(dbReadTable(con, "zig_smoke")$x) == 4 &&
+        identical(dbGetQuery(con, "SELECT '\\x4f4b'::bytea AS b")$b[[1]], as.raw(c(0x4f, 0x4b)))
+    })
+    dbDisconnect(con)
+  }
 }
 
 cat("\nSUMMARY\n")

@@ -57,6 +57,41 @@ fn takesRawValue(x: []const u8) bool {
     return false;
 }
 
+/// Linker options zig's frontend rejects ("unsupported linker arg") that
+/// change nothing in a link that succeeds, dropped in every spelling (in a
+/// `-Wl,` list, after `-Xlinker`):
+///   --allow-multiple-definition, -z muldefs: as rzig (r-zig-pixi
+///     fix-stress-round1 S8, linker_args.zig); PostgreSQL's MinGW template
+///   --disable-auto-import: a safety flag (the link fails where MinGW
+///     auto-import would be needed; lld's MinGW driver auto-imports by
+///     default). PostgreSQL's MinGW template (slice2 PLAN.md S2-F26, D120)
+fn droppedLinkerOpt(x: []const u8) bool {
+    const names = [_][]const u8{ "--allow-multiple-definition", "-allow-multiple-definition", "-zmuldefs", "--disable-auto-import", "-disable-auto-import" };
+    for (names) |n| if (mem.eql(u8, x, n)) return true;
+    return false;
+}
+
+/// A `-Wl,` list without the dropped options (an empty list: null).
+fn filterWl(a: mem.Allocator, list: []const u8) !?[]const u8 {
+    var kept: std.ArrayList([]const u8) = .empty;
+    var items: std.ArrayList([]const u8) = .empty;
+    var it = mem.splitScalar(u8, list, ',');
+    while (it.next()) |x| try items.append(a, x);
+    var i: usize = 0;
+    while (i < items.items.len) : (i += 1) {
+        const x = items.items[i];
+        if (droppedLinkerOpt(x)) continue;
+        if (mem.eql(u8, x, "-z") and i + 1 < items.items.len and mem.eql(u8, items.items[i + 1], "muldefs")) {
+            i += 1;
+            continue;
+        }
+        try kept.append(a, x);
+    }
+    if (kept.items.len == 0) return null;
+    if (kept.items.len == items.items.len) return list;
+    return try mem.join(a, ",", kept.items);
+}
+
 /// `zig cc|c++ -target <t> <defaults> <caller's, rewritten>` after zig's path.
 pub fn compilerArgs(a: mem.Allocator, lang: []const u8, t: target.Target, caller: []const []const u8) ![]const []const u8 {
     var out: std.ArrayList([]const u8) = .empty;
@@ -66,6 +101,21 @@ pub fn compilerArgs(a: mem.Allocator, lang: []const u8, t: target.Target, caller
     var i: usize = 0;
     while (i < caller.len) : (i += 1) {
         const x = caller[i];
+        if (mem.eql(u8, x, "-Xlinker") and i + 1 < caller.len) {
+            const n = caller[i + 1];
+            if (droppedLinkerOpt(n)) {
+                i += 1;
+                continue;
+            }
+            if (mem.eql(u8, n, "-z") and i + 3 < caller.len and mem.eql(u8, caller[i + 2], "-Xlinker") and mem.eql(u8, caller[i + 3], "muldefs")) {
+                i += 3;
+                continue;
+            }
+        }
+        if (flagValue(x, "-Wl,")) |list| {
+            if (try filterWl(a, list)) |l| try out.append(a, if (l.ptr == list.ptr) x else try mem.concat(a, u8, &.{ "-Wl,", l }));
+            continue;
+        }
         if (takesRawValue(x) and i + 1 < caller.len) {
             try out.appendSlice(a, &.{ x, caller[i + 1] });
             i += 1;
@@ -177,4 +227,15 @@ test "-march/-mcpu/-mtune=native are dropped; .s inputs get no -object-file-name
     defer arena.deinit();
     const t = target.fromGnu("x86_64-w64-mingw32").?;
     try expectArgs(&.{ "cc", "-target", "x86_64-windows-gnu", "-mcpu=baseline", "-fno-sanitize=undefined", "-Wno-date-time", "-c", "a.s" }, try compilerArgs(arena.allocator(), "cc", t, &.{ "-march=native", "-mcpu=native", "-mtune=native", "-c", "a.s" }));
+}
+
+test "linker options zig rejects are dropped, in every spelling (D120)" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const t = target.fromGnu("x86_64-w64-mingw32").?;
+    const pre = [_][]const u8{ "cc", "-target", "x86_64-windows-gnu", "-mcpu=baseline", "-fno-sanitize=undefined", "-Wno-date-time", "-Xclang", "-object-file-name=zig-libs.obj" };
+    // PostgreSQL's src/template/win32 and meson.build
+    try expectArgs(&(pre ++ [_][]const u8{ "-o", "a.exe", "a.c" }), try compilerArgs(arena.allocator(), "cc", t, &.{ "-o", "a.exe", "-Wl,--allow-multiple-definition", "-Wl,--disable-auto-import", "a.c" }));
+    try expectArgs(&(pre ++ [_][]const u8{ "-Wl,-z,now", "-Wl,--as-needed" }), try compilerArgs(arena.allocator(), "cc", t, &.{ "-Wl,-allow-multiple-definition,-z,muldefs,-z,now,-zmuldefs", "-Wl,--as-needed" }));
+    try expectArgs(&(pre ++ [_][]const u8{ "-Xlinker", "--as-needed", "a.o" }), try compilerArgs(arena.allocator(), "cc", t, &.{ "-Xlinker", "--disable-auto-import", "-Xlinker", "-z", "-Xlinker", "muldefs", "-Xlinker", "--as-needed", "a.o" }));
 }

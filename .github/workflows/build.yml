@@ -223,7 +223,7 @@ jobs:
     # only its own test leg (at the artifact download), not all of them
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -276,8 +276,10 @@ jobs:
       # also after a failure; the step fails if any did. The step timeout
       # catches a hung process spawn (r-zig-pixi's windows-latest MSYS
       # flake).
+      # 45 minutes ran out with 15 packages and a cold zig cache (slice2
+      # PLAN.md S2-F28); slice 2 adds more.
       - name: rattler-build test each package
-        timeout-minutes: 45
+        timeout-minutes: 100
         run: |
           chan="file:///$(cygpath -m "$PWD")/channel"
           failed=() n=0
@@ -325,23 +327,29 @@ jobs:
       matrix:
         include:
           # sf needs units (zig-udunits2 since slice 2 batch 2), so both
-          # arches run the same list
+          # arches run the same list. libboost-headers: RPostgres takes
+          # boost from the toolchain's tree when it uses a system libpq
+          # (S2-F27). pgserver: a conda-forge PostgreSQL server for
+          # RPostgres' query checks (none for win-arm64 on conda-forge)
           - subdir: win-64
             runner: windows-latest
-            sysdeps: libxml2-devel cmake
-            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units gsl
+            sysdeps: libxml2-devel cmake libboost-headers
+            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units gsl RPostgres
+            pgserver: "16.*"
           - subdir: win-arm64
             runner: windows-11-arm
-            sysdeps: libxml2-devel cmake
-            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units gsl
+            sysdeps: libxml2-devel cmake libboost-headers
+            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units gsl RPostgres
+            pgserver: ""
     env:
       SUBDIR: ${{ matrix.subdir }}
       SYSDEPS: ${{ matrix.sysdeps }}
       PACKAGES: ${{ matrix.packages }}
       # the zig-* libraries the packages link (sf, terra, gdalraster: gdal,
       # geos, proj; terra: onetbb; s2: abseil, openssl; gmp, Rmpfr, igraph:
-      # gmp, mpfr, glpk; nloptr: nlopt; units: udunits2, expat; gsl: gsl)
-      ZIG_LIBS: zig-gdal zig-geos zig-proj zig-onetbb zig-abseil zig-openssl zig-gmp zig-mpfr zig-glpk zig-nlopt zig-udunits2 zig-expat zig-gsl
+      # gmp, mpfr, glpk; nloptr: nlopt; units: udunits2, expat; gsl: gsl;
+      # RPostgres: libpq, openssl)
+      ZIG_LIBS: zig-gdal zig-geos zig-proj zig-onetbb zig-abseil zig-openssl zig-gmp zig-mpfr zig-glpk zig-nlopt zig-udunits2 zig-expat zig-gsl zig-libpq
     steps:
       - name: Defender exclusions
         shell: pwsh
@@ -390,6 +398,21 @@ jobs:
           # and PKG_CONFIG_LIBDIR, R_TOOLS_SOFT in its Rcmd_environ;
           # CONTRACT 6): nothing to add here
           echo "RSCRIPT=$(cygpath -m "$ws/.pixi/envs/default/Library/lib/R/bin/x64/Rscript.exe")" >> "$GITHUB_ENV"
+      # A throwaway PostgreSQL cluster in its own env (its libpq.pc never
+      # reaches R's builds). The Smoke step starts and stops its server, so
+      # no process outlives a step; tests/r/smoke.R reads R_SMOKE_PG.
+      - name: PostgreSQL test cluster
+        if: ${{ matrix.pgserver != '' }}
+        timeout-minutes: 15
+        env:
+          PGSERVER: ${{ matrix.pgserver }}
+        run: |
+          set -euo pipefail
+          pg="$(cygpath -m "$RUNNER_TEMP")/pgserver"
+          mkdir -p "$pg"
+          printf '[workspace]\nname = "pgserver"\nchannels = ["conda-forge"]\nplatforms = ["%s"]\n\n[dependencies]\npostgresql = "%s"\n' "$SUBDIR" "$PGSERVER" > "$pg/pixi.toml"
+          pixi run --manifest-path "$pg/pixi.toml" initdb -D "$pg/data" -U postgres -A trust -E UTF8
+          echo "PGSERVER_MANIFEST=$pg/pixi.toml" >> "$GITHUB_ENV"
       - name: Install the R packages from source
         timeout-minutes: 110
         env:
@@ -401,6 +424,13 @@ jobs:
       - name: Smoke
         timeout-minutes: 10
         run: |
+          set -euo pipefail
+          if [ -n "${PGSERVER_MANIFEST:-}" ]; then
+            pg="$(dirname "$PGSERVER_MANIFEST")"
+            pixi run --manifest-path "$PGSERVER_MANIFEST" pg_ctl -D "$pg/data" -o "-p 5544" -l "$pg/server.log" -w start
+            trap 'pixi run --manifest-path "$PGSERVER_MANIFEST" pg_ctl -D "$pg/data" -m fast -w stop || true' EXIT
+            export R_SMOKE_PG="host=127.0.0.1 port=5544 user=postgres dbname=postgres sslmode=disable"
+          fi
           # shellcheck disable=SC2086
           pixi run --manifest-path "$MANIFEST" "$RSCRIPT" "$(cygpath -m "$GITHUB_WORKSPACE/tests/r/smoke.R")" $PACKAGES | tee smoke.txt
           grep '^SMOKE' smoke.txt | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY"

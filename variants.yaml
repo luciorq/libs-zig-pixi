@@ -50,6 +50,15 @@ m4:
   - "1.4.21"
 llvm_tools:
   - "23.1.6"
+# meson recipes (zig-libpq, slice2 D119): meson, and the parser and header
+# generators PostgreSQL's git tag needs. Versions as resolved 2026-11-24
+# (slice2 PLAN.md S2-F27).
+meson:
+  - "1.12.1"
+bison:
+  - "3.8.2"
+flex:
+  - "2.6.4"
 
 # Upstream versions: Rtools45 build 6768 (D9). Each recipe reads its own
 # key (zlib_version, ...) in its context, so the version is only here; the
@@ -86,3 +95,5 @@ udunits2_version:
   - "2.2.28"
 gsl_version:
   - "2.7.1"
+libpq_version:
+  - "16.10"

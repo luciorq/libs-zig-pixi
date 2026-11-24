@@ -15,7 +15,7 @@
 #                       headers and packages in the sub-prefix, and a
 #                       prefix path would let find_program pick up
 #                       <sub-prefix>/bin scripts (foo-config) on the host
-#   ZIG_TOOLCHAIN_MESON_CROSS   the meson cross file (untested)
+#   ZIG_TOOLCHAIN_MESON_CROSS   the meson cross file (first used by zig-libpq)
 #   ZIG_GLOBAL_CACHE_DIR  $LIBS_ZIG_CACHE when the recipe passes it (CI: one
 #                       cache per job, kept between runs; slice2 D115),
 #                       else under $SRC_DIR. Zig's cache is content

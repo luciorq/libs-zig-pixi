@@ -72,6 +72,9 @@ per-library fallback, text below).
 | D116 | r-consumer once r-zig build 12 is on universe (D114's exit condition; r-zig-pixi session message 2026-11-24: build 12 published, release run 45381914199, pre-merge stress 45305358893 ok for sf, terra, gdalraster, lwgeom, s2 on both Windows arches) | A drop the D114 emulation (the appended Rcmd_environ lines, the user Makevars) and `continue-on-error`, pin r-zig-slim and r-zig-toolchain to `4.6.2 *_12`; B keep it report-only one more batch | A, dated 2026-11-24, in the batch-2 PR (#8) so its run is the first with the job required | D114 said to drop both with build 12; the pin keeps an older r-zig from being picked, where the job would fail for a reason not in this repo | mine (D114 exit), on the r-zig-pixi session's request |
 | D117 | Fence the host gfortran that udunits' `AC_PROG_FC` finds on the GitHub runner (S2-F24) | A `FC=no F77=no` on zig-udunits2's configure line only, the helper fence later; B the same two fences in `zig-toolchain configure` now; C helper fence after a batch-1 publish (12 libraries to build 2) | B, dated 2026-11-24 (first A; B once D118 removed the batch-1 publish: zig-toolchain 0.2.0 is unpublished, so the fence changes no version and no build string) | one fence for every autotools library (hdf5 and netcdf come with optional Fortran parts); UDUNITS-2 has no Fortran API ("No Fortran or Perl API", udunits2.texi; lib/ builds C only), so the fence drops nothing; gmp, mpfr, glpk, gsl probe no Fortran | mine, after the user's D118 |
 | D118 | Release cadence for the rest of slice 2 (replaces D106A) | A publish per batch (D106); B one PR for all remaining slice-2 work, one publish at the end | B, dated 2026-11-24 | user: "We don't need to publish anything now. Let's fold all ongoing work on a single PR with all builds we have in our ongoing list." Batch 1 (merged, PR #7) stays unpublished; PR #8 (branch feat-slice2-batch2) carries batch 2 and the D103 rest (gsl, libpq, the text stack, libxml2, the data stack); one handover to r-zig-pixi after that publish | user |
+| D119 | libpq 16.10 after S2-F26 (no clean path) | A PostgreSQL's own meson build plus two zig-toolchain fixes (D120); B autotools plus wrapper changes (drop the flags, `.o` object names) and libpq.a archived outside upstream's rules; C defer libpq to after the text stack; D allyourcodebase/libpq (18.4, own OpenSSL, no LDAP: a fork) | A, dated 2026-11-24 | upstream's own build, a real static libpq.a with no Makefile change; the toolchain fixes help every meson library (harfbuzz, fribidi) | user |
+| D120 | zig-toolchain for meson and PostgreSQL's MinGW flags (S2-F26) | A the cc/c++ wrapper drops `--allow-multiple-definition`, `-z muldefs` and `--disable-auto-import` in every spelling (`-Wl,` lists, `-Xlinker`), and `<triple>-windres --version` prints "GNU windres compatible: zig-toolchain <v> (zig rc)" (meson's windows module types a windres by "GNU windres"); B per-recipe workarounds | A, dated 2026-11-24 | rzig drops the first two (r-zig-pixi fix-stress-round1 S8); the r-zig-pixi session (2026-11-24): --disable-auto-import is a safety flag, lld's MinGW driver auto-imports by default, so dropping it never changes a link that succeeds; rzig adds the same drop and the same windres words in build 13. zig-toolchain 0.2.0 is unpublished: no version change | mine, r-zig-pixi agreed |
+| D121 | What zig-libpq changes beyond options (S2-F27) | A Rtools45's own c.h patch (sigsetjmp is setjmp on UCRT; zig's MinGW defines _UCRT on both arches) and the activation's -ffile-prefix-map left out of CFLAGS (config_info.c compiles CFLAGS in as strings); B a compile flag for x86_64 (-Wno-error=incompatible-pointer-types) and -march=armv8-a+crc for aarch64 instead of the patch | A, dated 2026-11-24 (default, vetoable) | B does not build on aarch64: pg_get_line.c's sigsetjmp needs __builtin_setjmp, which clang has not for aarch64; the patch is the one CRAN's own clang (aarch64) build carries, four lines, unchanged | mine |
 
 D104 in the user's words: "As soon as cross-compiling a library with
 autotools gets tricky, stop and switch that library to another path
@@ -613,3 +616,89 @@ no emulation) plus this zig-gsl installs CRAN gsl 2.1-9 from source (its
 Makevars.win is `-L$(LIB_GSL)/lib -lgsl -lgslcblas`; kappa has no
 Rtools45 tree and no fallback, so -lgsl resolved in zig-libs) and
 tests/r/smoke.R gsl passes 3/3. r-consumer lists gsl on both arches.
+
+**S2-F26 V. libpq 16.10: neither upstream build goes through cleanly;
+D104's early fallback applies (2026-11-24, prototypes on gamma,
+win-64).** Source postgresql-16.10.tar.bz2, sha256 `de8485f4...92b42`
+(the same as Rtools45's MXE postgresql.mk). Rtools45 (MXE, Kalibera's
+toolchain_libs) builds it with autotools, `--with-openssl --with-ldap`,
+and two patches: configure.ac (autoconf version check; OpenSSL library
+names) and src/Makefile.shlib (on win32 upstream's `libpq.a` is the
+DLL's import library, `$(stlib): $(shlib) touch $@`; the patch makes a
+real static archive). RPostgres 1.4.10's Makevars.win takes
+`pkg-config --libs libpq` only when it contains `ldap32`, else it
+downloads its own libpq (tools/winlibs.R): the package needs LDAP on.
+Through `zig-toolchain configure` (with zig-openssl, `LIBS` = its .pc
+dependencies): (1) src/template/win32 adds `-Wl,--allow-multiple-definition`
+and `-Wl,--disable-auto-import`; zig rejects both ("unsupported linker
+arg"), so "the C compiler still works... no". rzig drops the first in
+every spelling (r-zig-pixi fix-stress-round1 S8, linker_args.zig); the
+second is in no r-zig-pixi record. With a throwaway wrapper dropping
+both, configure passes (`ldap_bind in -lwldap32... yes`), then (2) make
+stops: `No rule to make target 'preadv.obj'`: zig names `-c` outputs
+`.obj` for Windows targets, so configure sets OBJEXT=obj, which
+PostgreSQL's Makefiles (LIBOBJS against `%.o` rules) do not handle;
+`ac_cv_objext=o` breaks configure's own compile tests (conftest.obj
+left, "does not support C99"). (3) The static libpq.a needs the
+Makefile.shlib change (a D104 trigger) or an archive made outside
+upstream's rules. PostgreSQL's meson build (16.x ships both): the same
+two linker flags (meson.build 310-312), and perl, python, flex, bison
+required; with the dropping wrapper and `-Dsystem_tzdata=/dev/null`
+(else it wants a native zic), setup finds zig-openssl 3.6.0 and wldap32,
+then stops: "Could not determine type of Windows resource compiler"
+(src/bin/pgevent; the toolchain's `windres` wrapper does not print a
+version meson recognises; the toolchain's meson cross file was never
+used before). allyourcodebase/libpq (the zig port, PORTS.md): PostgreSQL
+18.4, links its own OpenSSL/LibreSSL dependency, no LDAP
+(`HAVE_LIBWLDAP32 = null`). No CMake port. Decision D119.
+
+**S2-F27 V. zig-libpq 16.10 through PostgreSQL's meson build (D119-D121;
+2026-11-24, gamma and kappa).** (1) meson on the release tarball stops:
+"Non-clean source code directory detected" (PostgreSQL 16 tarballs ship
+the bison/flex/perl outputs; 17 stopped shipping them). The git tag
+archive (github.com/postgres/postgres REL_16_10, sha256
+`2cffb237...c517ca7`) builds; its src/interfaces/libpq, src/common and
+src/port sources equal the tarball's (only the generated kwlist_d.h
+differs). bison 3.8.2, flex 2.6.4, perl, python, meson 1.12.1, ninja
+from conda-forge (pins in variants.yaml). (2) With D120's toolchain,
+`meson setup` passes (zig-openssl 3.6.0 by pkg-config, `Library wldap32
+found: YES`; `-Dsystem_tzdata=/dev/null`, else a native zic). (3)
+x86_64: pg_get_line.c fails, c.h's MinGW `sigsetjmp` is
+`__builtin_setjmp` on an `intptr_t[5]` (clang 16+: incompatible pointer
+types, an error); aarch64 also pg_crc32c_armv8_choose.c, and
+`-march=armv8-a+crc` (no runtime probe) still leaves pg_get_line.c:
+"__builtin_setjmp is not supported for the current target". Rtools45's
+MXE patch (postgresql-2-use-mingw-setjmp-on-ucrt.patch: setjmp when
+_UCRT) fixes both; zig defines `_UCRT` (`__MSVCRT_VERSION__ 0xE00`) for
+both targets. (4) libpgcommon.a held the build path: config_info.c's
+VAL_CFLAGS/VAL_LDFLAGS (src/common/meson.build) carry the activation's
+`-ffile-prefix-map=<SRC_DIR>=...`; meson compiles with relative paths,
+so the recipe drops that flag. (5) Only the targets libpq.a,
+libpgcommon.a, libpgport.a are built (`meson install` would build the
+server); the recipe installs upstream's client set (libpq-fe.h,
+libpq-events.h, postgres_ext.h, pg_config*.h, libpq/libpq-fs.h,
+postgresql/internal/) and meson's libpq.pc, closed: `Libs: -lpq
+-lsecur32 -pthread -lwldap32 -lws2_32 -lm -lpgport -lpgcommon`,
+`Requires: openssl`. Local builds: win-64 `zig_172a6d9_0`, win-arm64
+`zig_a8a682b_0`, recipe tests pass (6 archives in the closure, no build
+path, 0 duplicate symbols, no -export: directive). kappa win-64:
+tests/smoke/libpq.c prints `libpq 160010 (OpenSSL)` and a refused
+connection ("Connection refused (0x0000274D/10061)"). RPostgres 1.4.10
+takes this libpq ("using libpq from Rtools": its Makevars.win found
+ldap32 in `pkg-config --libs libpq`) and then needs boost headers
+(`boost/shared_ptr.hpp`): with a system libpq it leaves out its vendored
+boost and expects the toolchain tree's; conda-forge `libboost-headers`
+in the env supplies them (r-consumer sysdeps). With them (kappa win-64,
+r-zig-slim `hb04b5bb_12`, libboost-headers 1.92.0): RPostgres 1.4.10
+installs from source and tests/r/smoke.R RPostgres passes 4/4, two of
+them against a conda-forge PostgreSQL 16 server in a separate env (a
+query round trip; a table written and read, bytea and numeric). No
+postgres process left; the scratch directory removed.
+
+**S2-F28 V. The win-64 test step ran out of time (2026-11-24).** PR #8
+run 45418398647: "The action 'rattler-build test each package' has timed
+out after 45 minutes" on win-64, while abseil's smoke linked; every
+package tested before it passed (zlib to sqlite, gsl, nlopt). 15
+packages, and a cold zig cache (variants.yaml changed with gsl, so the
+key missed; main has not saved since). win-arm64, the alignment and both
+r-consumer jobs passed. Step limit 100, job 120 minutes.
