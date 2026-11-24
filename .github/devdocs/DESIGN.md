@@ -228,6 +228,18 @@ Written by `zig-toolchain close-pc` after install [consumer §1, §3]:
 | zig-udunits2 (slice 2) | UCAR | |
 | zig-gsl (slice 2) | **GPL-3.0-or-later** | libgslcblas in the same package and licence |
 | zig-libpq (slice 2) | PostgreSQL | |
+| zig-zstd (slice 2) | BSD-3-Clause OR GPL-2.0-only | |
+| zig-xz (slice 2) | 0BSD | liblzma only (the GPL/LGPL parts of xz are its tools) |
+| zig-libdeflate (slice 2) | MIT | |
+| zig-brotli (slice 2) | MIT | |
+| zig-bzip2 (slice 2) | bzip2-1.0.6 | |
+| zig-libpng (slice 2) | libpng-2.0 | |
+| zig-libjpeg (slice 2) | IJG | **IJG notice** (README) in licenses/libjpeg/ |
+| zig-libwebp (slice 2) | BSD-3-Clause | PATENTS in licenses/libwebp/ |
+| zig-libtiff (slice 2) | libtiff | |
+| zig-freetype (slice 2) | FTL OR GPL-2.0-or-later | FTL's credit clause ("Portions of this software are copyright The FreeType Project") |
+| zig-fribidi (slice 2) | **LGPL-2.1-or-later** | relink obligation as GEOS |
+| zig-harfbuzz (slice 2) | MIT | |
 | zig-glpk (slice 2) | **GPL-3.0-or-later** | internal zlib (Zlib), AMD and COLAMD (SuiteSparse, LGPL-2.1-or-later), MiniSat (MIT); their READMEs/LICENSE in `licenses/glpk/` |
 
   Slice 2 (slice2 PLAN.md D105, user 2026-11-23): the GPL and LGPL

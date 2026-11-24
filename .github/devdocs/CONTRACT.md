@@ -20,7 +20,11 @@ they differ from this summary.
   batch 1 (slice2/PLAN.md) also zig-gmp (with gmpxx), zig-mpfr,
   zig-glpk; from batch 2 zig-nlopt, zig-udunits2; from batch 3 zig-gsl
   (libgsl.a and GSL's own CBLAS, libgslcblas.a); zig-libpq (libpq.a with
-  libpgcommon.a and libpgport.a, LDAP and OpenSSL as Rtools45's).
+  libpgcommon.a and libpgport.a, LDAP and OpenSSL as Rtools45's); the
+  text stack (D122): zig-libpng, zig-libjpeg (IJG 9f), zig-libwebp,
+  zig-libtiff, zig-freetype, zig-fribidi, zig-harfbuzz, and the
+  compression libraries zig-zstd, zig-xz, zig-libdeflate, zig-brotli,
+  zig-bzip2.
   `zig-toolchain`
   (linux-64) is the build tool, not for consumers.
 - Only published builds are part of the contract. A consumer never
@@ -157,7 +161,8 @@ a `.pc` names is in `lib/`.
   against the new packages with r-zig from universe: the `r-consumer`
   job (build.yml; slice2/PLAN.md D113), `tests/r/install.R` then
   `tests/r/smoke.R` (sf, terra, gdalraster, s2, gmp, Rmpfr, igraph,
-  nloptr, units, gsl, RPostgres, on both arches; RPostgres' queries
+  nloptr, units, gsl, RPostgres, png, jpeg, tiff, webp, systemfonts,
+  textshaping, ragg, on both arches; RPostgres' queries
   against a throwaway PostgreSQL server on win-64), with r-zig-slim and r-zig-toolchain
   pinned to build 12 (D116). The publish job needs it, and it fails the
   run.

@@ -75,6 +75,9 @@ per-library fallback, text below).
 | D119 | libpq 16.10 after S2-F26 (no clean path) | A PostgreSQL's own meson build plus two zig-toolchain fixes (D120); B autotools plus wrapper changes (drop the flags, `.o` object names) and libpq.a archived outside upstream's rules; C defer libpq to after the text stack; D allyourcodebase/libpq (18.4, own OpenSSL, no LDAP: a fork) | A, dated 2026-11-24 | upstream's own build, a real static libpq.a with no Makefile change; the toolchain fixes help every meson library (harfbuzz, fribidi) | user |
 | D120 | zig-toolchain for meson and PostgreSQL's MinGW flags (S2-F26) | A the cc/c++ wrapper drops `--allow-multiple-definition`, `-z muldefs` and `--disable-auto-import` in every spelling (`-Wl,` lists, `-Xlinker`), and `<triple>-windres --version` prints "GNU windres compatible: zig-toolchain <v> (zig rc)" (meson's windows module types a windres by "GNU windres"); B per-recipe workarounds | A, dated 2026-11-24 | rzig drops the first two (r-zig-pixi fix-stress-round1 S8); the r-zig-pixi session (2026-11-24): --disable-auto-import is a safety flag, lld's MinGW driver auto-imports by default, so dropping it never changes a link that succeeds; rzig adds the same drop and the same windres words in build 13. zig-toolchain 0.2.0 is unpublished: no version change | mine, r-zig-pixi agreed |
 | D121 | What zig-libpq changes beyond options (S2-F27) | A Rtools45's own c.h patch (sigsetjmp is setjmp on UCRT; zig's MinGW defines _UCRT on both arches) and the activation's -ffile-prefix-map left out of CFLAGS (config_info.c compiles CFLAGS in as strings); B a compile flag for x86_64 (-Wno-error=incompatible-pointer-types) and -march=armv8-a+crc for aarch64 instead of the patch | A, dated 2026-11-24 (default, vetoable) | B does not build on aarch64: pg_get_line.c's sigsetjmp needs __builtin_setjmp, which clang has not for aarch64; the patch is the one CRAN's own clang (aarch64) build carries, four lines, unchanged | mine |
+| D122 | Text stack scope: Rtools45 builds libtiff with zstd, xz/lzma, LERC, libdeflate (and jpeg, webp, zlib), freetype with brotli, bzip2, harfbuzz (and png, zlib), harfbuzz with glib (intl, iconv, pcre2) | A minimal: only zig-* deps (libtiff zlib/jpeg/webp; freetype zlib/png; harfbuzz freetype); B A plus zig-zstd, zig-xz, zig-libdeflate, zig-brotli, zig-bzip2: Rtools45's features except LERC and glib; C everything Rtools45 has, glib and a freetype/harfbuzz two-pass build included | B, dated 2026-11-24 | the compression libraries also serve the data stack (hdf5, netcdf, curl); glib is a large build for features no R package here uses | user |
+| D123 | zig names a `-c` output without `-o` `<stem>.obj` for Windows (S2-F29) | A zig-toolchain's cc/c++ wrapper appends `-o <stem>.o`, as MinGW gcc and rzig (r-zig-pixi fix-stress-round1 S7, objSuffix); B per-recipe overrides (zig-bzip2's `CC="$CC -o $@"`) | A, dated 2026-11-24 | the same rule as r-zig's; bzip2's override goes, and PostgreSQL's autotools OBJEXT problem (S2-F26) would not have arisen. Autotools builds now see OBJEXT=o; zig-toolchain 0.2.0 is unpublished, so no version change | mine |
+| D124 | CRAN jpeg needs LOCAL_SOFT, which r-zig build 12 leaves empty (S2-F30) | A the r-consumer install step sets LOCAL_SOFT to the env's zig-libs tree and the finding goes to r-zig-pixi (whose Rcmd_environ could default it, as it does R_TOOLS_SOFT); B drop jpeg from r-consumer until r-zig decides; C nothing in CI, a CONTRACT note only | A, dated 2026-11-24 (default, vetoable) | jpeg is the only package of the 18 that reads LOCAL_SOFT; one env line in one step, removed when r-zig sets it; the libraries are not at fault. The r-zig-pixi session (2026-11-24): LOCAL_SOFT was left empty only to keep the Rtools45 sysroot away from zig (LOCAL_CPPFLAGS -I on every compile), which does not apply to zig-libs; r-zig build 13 (r-zig-pixi PR #57) defaults it to R_ZIG_LIBS and turns `-I<zig-libs>/include` into -idirafter; the workaround stands until build 13 is published | mine, r-zig-pixi agreed |
 
 D104 in the user's words: "As soon as cross-compiling a library with
 autotools gets tricky, stop and switch that library to another path
@@ -702,3 +705,59 @@ package tested before it passed (zlib to sqlite, gsl, nlopt). 15
 packages, and a cold zig cache (variants.yaml changed with gsl, so the
 key missed; main has not saved since). win-arm64, the alignment and both
 r-consumer jobs passed. Step limit 100, job 120 minutes.
+
+**S2-F29 V. `zig cc -c x.c` names its output x.obj (2026-11-24).** bzip2
+1.0.8's Makefile compiles `$(CC) $(CFLAGS) -c x.c` and archives x.o: "ar:
+error: blocksort.o: No such file or directory" (the bzip2 recipe's
+agent). zig names a `-c` output without `-o` `<stem>.obj` for a Windows
+target, MinGW gcc `<stem>.o`; the same made PostgreSQL's configure set
+OBJEXT=obj (S2-F26). rzig rewrites it (objSuffix, r-zig-pixi
+fix-stress-round1 S7). D123: zig-toolchain's flags.zig does the same
+(objOutput: with -c, no -S/-E/-M/-MM, no output named, one source among
+the inputs, `-o <stem>.o`); unit tests 33/33; zig-toolchain's recipe test
+checks `x86_64-w64-mingw32-cc -c hello.c` leaves hello.o and no
+hello.obj; zig-bzip2's override removed.
+
+**S2-F30 V. The text stack (D122 B): 12 packages, both arches, kappa
+win-64 (2026-11-24).** Recipes zig-zstd 1.5.7, zig-xz 5.8.2 (liblzma,
+`-DLZMA_API_STATIC` in its Cflags), zig-libdeflate 1.25, zig-brotli 1.2.0
+(three archives), zig-bzip2 1.0.8 (upstream Makefile, bzip2.pc written by
+the recipe), zig-libpng 1.6.54, zig-libjpeg 9f (IJG through the configure
+helper), zig-libwebp 1.6.0 (five archives), zig-libtiff 4.7.1 (CMake:
+zlib, libdeflate, jpeg, old-jpeg, lzma, zstd, webp; no LERC, JBIG or C++),
+zig-freetype 2.14.1 (CMake: zlib, png, bzip2, brotli; no harfbuzz),
+zig-fribidi 1.0.16 and zig-harfbuzz 12.3.0 (meson; freetype only, no C++
+runtime in its link: pkgtest `--forbid -lstdc++ --forbid -lc++`). A clean
+rebuild of all 28 libraries with D123's toolchain (gamma, fresh output and
+cache): both arches exit 0, 28/28 package tests pass on each. Build
+strings, win-64 / win-arm64: zstd `zig_7a25264_0` / `zig_55d5032_0`, xz
+`zig_ff32a5e_0` / `zig_6f3d017_0`, libdeflate `zig_77896ef_0` /
+`zig_6bb1c10_0`, brotli `zig_8d86e8c_0` / `zig_4dc7140_0`, bzip2
+`zig_d0671e6_0` / `zig_ca4b6c1_0`, libpng `zig_94b2c29_0` /
+`zig_5f3f133_0`, libjpeg `zig_818e618_0` / `zig_9aad480_0`, libwebp
+`zig_feab249_0` / `zig_54b5342_0`, libtiff `zig_73238b7_0` /
+`zig_71ac026_0`, freetype `zig_8b8bf55_0` / `zig_5a2a8ac_0`, fribidi
+`zig_5cc9b54_0` / `zig_b4e2bb1_0`, harfbuzz `zig_46191cb_0` /
+`zig_b4a567a_0`; the earlier packages keep their strings (gsl
+`zig_3d4d675_0` / `zig_67fdb26_0`, libpq `zig_172a6d9_0` /
+`zig_a8a682b_0`). kappa win-64: the 12 smoke programs and gsl's, linked
+on gamma with `pkgconf --static` against the packages, all exit 0. An env
+of r-zig-slim `hb04b5bb_12`, r-zig-toolchain `h3946dc3_12` and these
+packages installs CRAN png 0.1-9, tiff 0.1-12, webp 1.3.0, systemfonts
+1.3.4, textshaping 1.1.0, ragg 1.5.2 and gsl 2.1-9 from source with no
+change; each links from zig-libs (png `-lpng16 -lz`; tiff `-ltiff -lz
+-ldeflate -ljpeg -llzma -lzstd -lwebp -lsharpyuv`; textshaping
+`-lharfbuzz -lfreetype -lbz2 -lpng16 -lz -lbrotlidec -lbrotlicommon -lm
+-lfribidi`; ragg "using freetype2 libpng libtiff-4 libjpeg libwebpmux
+libwebp from Rtools"), none downloads. jpeg 0.1-11 does not: its
+configure.win looks only in `$(LOCAL_SOFT)/lib`; r-zig's Makeconf has
+`LOCAL_SOFT ?=` and its Rcmd_environ sets R_TOOLS_SOFT, not LOCAL_SOFT,
+so jpeg looks in /lib, tries rforge's binary tarball and fails ("gzip:
+Cannot exec"). With `LOCAL_SOFT=<env>/Library/zig-libs/x86_64-windows-gnu`
+it prints "found libjpeg in LOCAL_SOFT" and links `-ljpeg` from zig-libs.
+Decision D124; sent to the r-zig-pixi session. tests/r/smoke.R: the first
+image was a column-striped pattern (column-major fill), which lossy
+codecs blur (jpeg mean error 0.107); a smooth gradient gives 0.0028
+(jpeg) and 0.0036 (webp). With it, all 16 checks pass (gsl 3, png, jpeg,
+tiff 4, webp, systemfonts, textshaping 2, ragg 3). The scratch directory
+was removed afterwards.
