@@ -1,0 +1,112 @@
+# zig-libxml2: libxml2, static only, for Windows (win-64, win-arm64),
+# cross-built on linux with zig-toolchain through libxml2's own autotools
+# configure (D1), run by `zig-toolchain configure` (slice2 D104), with
+# Rtools45's options (slice2 D125 B): zlib, lzma and GNU libiconv, each
+# from its zig-* package in the host env. No ICU, no Python bindings, no
+# programs (xmllint, xmlcatalog), no docs. Installed under the private
+# sub-prefix Library/zig-libs/<zig triple>/ (D2): lib/libxml2.a,
+# include/libxml2/libxml/, lib/pkgconfig/libxml-2.0.pc (closed,
+# relocatable, -DLIBXML_STATIC in Cflags, Requires: zlib liblzma iconv),
+# licenses/libxml2/.
+context:
+  version: ${{ libxml2_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-libxml2
+  version: ${{ version }}
+
+source:
+  # sha256 as in download.gnome.org's libxml2-<version>.sha256sum
+  - url: https://download.gnome.org/sources/libxml2/${{ (version | split("."))[:2] | join(".") }}/libxml2-${{ version }}.tar.xz
+    sha256: c3d8c0c34aa39098f66576fe51969db12a5100b956233dc56506f7a8679be995
+  # the package test (tests/pkgtest.zig, tests/smoke/libxml2.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # configure and make; exact: puts make and llvm_tools in the hash
+    # (variants.yaml). llvm-nm is configure's NM (zig-toolchain configure).
+    # pkgconf finds zig-zlib and zig-xz for configure (zig-toolchain
+    # configure's PKG_CONFIG; PKG_CONFIG_LIBDIR is the host's zig-libs).
+    - make ==${{ make }}
+    - llvm-tools ==${{ llvm_tools }}
+    - pkgconf
+  host:
+    - zig-zlib
+    - zig-xz
+    - zig-libiconv
+  run_exports:
+    weak:
+      # libxml2's ABI is stable within 2.x (soname libxml2.so.2)
+      - ${{ pin_subpackage("zig-libxml2", upper_bound="x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libxml2.a
+          - ${{ sub }}/include/libxml2/libxml/parser.h
+          - ${{ sub }}/include/libxml2/libxml/xmlversion.h
+          - ${{ sub }}/include/libxml2/libxml/xpath.h
+          - ${{ sub }}/lib/pkgconfig/libxml-2.0.pc
+          - ${{ sub }}/licenses/libxml2/Copyright
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library; no libtool archive, no xmllint or xmlcatalog, no
+        # xml2-config, no CMake config, no libxml.m4, no docs
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.la"
+          - "**/*.exe"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/share/**
+          - ${{ sub }}/lib/cmake/**
+  # tests/pkgtest.zig (its header says what it checks): libxml-2.0.pc pulls
+  # iconv.pc, zlib.pc and liblzma.pc through Requires (--require -l<n> for
+  # each) and says -DLIBXML_STATIC; the relocated .pc resolves to existing
+  # paths, no absolute prefix in it, no build path in the archives, no C
+  # symbol defined in two archives of the closure, no dllexport directive,
+  # and tests/smoke/libxml2.c links (and runs, on Windows of the same arch:
+  # ISO-8859-1 and Shift_JIS documents parsed to UTF-8, XPath, gzip and xz
+  # files read). One plain command for bash (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -DLIBXML_STATIC --require -liconv --require -lz --require -llzma ${{ zt }} libxml-2.0 zig-libs-tests/smoke/libxml2.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/libxml2.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://gitlab.gnome.org/GNOME/libxml2
+  license: MIT
+  license_file: Copyright
+  summary: libxml2 (XML parser and toolkit), static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://gitlab.gnome.org/GNOME/libxml2

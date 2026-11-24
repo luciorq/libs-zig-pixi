@@ -125,3 +125,8 @@ fribidi_version:
   - "1.0.16"
 harfbuzz_version:
   - "12.3.0"
+# libxml2 with zlib, lzma and GNU libiconv, as Rtools45 (slice2 D125 B)
+libiconv_version:
+  - "1.17"
+libxml2_version:
+  - "2.12.10"

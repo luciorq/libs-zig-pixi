@@ -1,0 +1,106 @@
+# zig-libiconv: GNU libiconv, static only, for Windows (win-64, win-arm64),
+# cross-built on linux with zig-toolchain through libiconv's own autotools
+# configure (D1), run by `zig-toolchain configure` (slice2 D104); for
+# zig-libxml2 (slice2 D125 B, Rtools45 parity). The libraries only: no
+# iconv program, no translations, no man pages or docs. Installed under the
+# private sub-prefix Library/zig-libs/<zig triple>/ (D2): lib/libiconv.a,
+# lib/libcharset.a, include/{iconv,libcharset,localcharset}.h,
+# lib/pkgconfig/iconv.pc (written by the recipe: upstream ships none;
+# closed, relocatable), licenses/libiconv/.
+context:
+  version: ${{ libiconv_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-libiconv
+  version: ${{ version }}
+
+source:
+  # sha256 as computed on download; the tarball's GPG signature
+  # (libiconv-1.17.tar.gz.sig) verifies with Bruno Haible's key 9001B85A...
+  - url: https://ftp.gnu.org/pub/gnu/libiconv/libiconv-${{ version }}.tar.gz
+    sha256: 8f74213b56238c85a50a5329f77e06198771e70dd9a739779f4c02f65d971313
+  # the package test (tests/pkgtest.zig, tests/smoke/libiconv.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # configure and make; exact: puts make and llvm_tools in the hash
+    # (variants.yaml). llvm-nm is configure's NM (zig-toolchain configure).
+    - make ==${{ make }}
+    - llvm-tools ==${{ llvm_tools }}
+  run_exports:
+    weak:
+      # libiconv's ABI is stable within 1.x (soname libiconv.so.2)
+      - ${{ pin_subpackage("zig-libiconv", upper_bound="x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libiconv.a
+          - ${{ sub }}/lib/libcharset.a
+          - ${{ sub }}/include/iconv.h
+          - ${{ sub }}/include/libcharset.h
+          - ${{ sub }}/include/localcharset.h
+          - ${{ sub }}/lib/pkgconfig/iconv.pc
+          - ${{ sub }}/licenses/libiconv/COPYING.LIB
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library; no libtool archive, no iconv program, no preloadable
+        # library, no translations, no man pages or docs
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.la"
+          - "**/*.exe"
+          - "**/*.so"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/share/**
+  # tests/pkgtest.zig (its header says what it checks): the relocated .pc
+  # resolves to existing paths, no absolute prefix in it, no build path in
+  # libiconv.a, no C symbol in two archives, no dllexport directive, and
+  # tests/smoke/libiconv.c links (and runs, on Windows of the same arch:
+  # ISO-8859-1, SHIFT_JIS and EUC-JP to UTF-8, byte for byte). One plain
+  # command for bash (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -liconv ${{ zt }} iconv zig-libs-tests/smoke/libiconv.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/libiconv.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://www.gnu.org/software/libiconv/
+  # the libraries are LGPL; COPYING (GPL-3.0) covers the iconv program and
+  # tests, none of them in this package
+  license: LGPL-2.1-or-later
+  license_file: COPYING.LIB
+  summary: GNU libiconv (character set conversion), static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://git.savannah.gnu.org/git/libiconv.git
