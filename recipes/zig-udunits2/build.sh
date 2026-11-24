@@ -12,6 +12,8 @@ echo "zig-udunits2: ZIG_BIN='${zig_bin}' zig version: $v ($(command -v "${zig_bi
 [ "$v" = "${ZIG_VERSION}" ] || { echo "zig-udunits2: zig is $v, variants.yaml says ${ZIG_VERSION}" >&2; exit 1; }
 
 # zig-expat's headers and archive; -DXML_STATIC as its expat.pc says.
+# FC and F77 are fenced by the helper: configure.ac's AC_PROG_FC would
+# find a host gfortran (slice2 S2-F24); UDUNITS-2 has no Fortran API.
 mkdir -p _build && cd _build
 CFLAGS="-O2 ${CFLAGS}" zig-toolchain configure ../configure \
   CPPFLAGS="-I${ZIG_LIBS_PREFIX}/include -DXML_STATIC" LDFLAGS="-L${ZIG_LIBS_PREFIX}/lib"

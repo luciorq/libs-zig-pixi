@@ -85,10 +85,10 @@ tests:
       # configure (slice2 D104): the cross arguments come first, the
       # caller's after them; the fences are set, a caller's value is kept
       - |
-        printf '#!/bin/sh\necho "args: $*"\necho "CC_FOR_BUILD=$CC_FOR_BUILD|LD=$LD|AS=$AS|NM=$NM|PKG_CONFIG=$PKG_CONFIG|CONFIG_SITE=$CONFIG_SITE"\n' > fake-configure && chmod +x fake-configure
+        printf '#!/bin/sh\necho "args: $*"\necho "CC_FOR_BUILD=$CC_FOR_BUILD|LD=$LD|AS=$AS|NM=$NM|PKG_CONFIG=$PKG_CONFIG|CONFIG_SITE=$CONFIG_SITE|FC=$FC|F77=$F77"\n' > fake-configure && chmod +x fake-configure
         ZIG_TOOLCHAIN_TARGET=aarch64-windows-gnu PKG_CONFIG=mine zig-toolchain configure ./fake-configure --enable-cxx | tee conf.txt
         grep -q -- 'args: --build=x86_64-pc-linux-gnu --host=aarch64-w64-mingw32 --prefix=/zig-libs/aarch64-windows-gnu --libdir=/zig-libs/aarch64-windows-gnu/lib --disable-shared --enable-static --enable-cxx$' conf.txt
-        grep -q 'CC_FOR_BUILD=[^|]*zig cc|LD=aarch64-w64-mingw32-ld|AS=aarch64-w64-mingw32-as|NM=.*|PKG_CONFIG=mine|CONFIG_SITE=/dev/null$' conf.txt
+        grep -q 'CC_FOR_BUILD=[^|]*zig cc|LD=aarch64-w64-mingw32-ld|AS=aarch64-w64-mingw32-as|NM=.*|PKG_CONFIG=mine|CONFIG_SITE=/dev/null|FC=no|F77=no$' conf.txt
         if env -u ZIG_TOOLCHAIN_TARGET zig-toolchain configure ./fake-configure; then exit 1; fi
       # check-alignment (D17): one build number per package across subdirs;
       # zig-toolchain only in linux-64 is outside --expect

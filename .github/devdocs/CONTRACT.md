@@ -107,10 +107,12 @@ Written by `zig-toolchain close-pc` (toolchain/src/closepc.zig):
 Owned by r-zig-pixi; listed so the producer knows what a change can
 break. Windows only; unix never looks for zig-libs.
 
-This section describes r-zig-pixi main. The first r-zig build that carries
-it is 12 (unpublished as of 2026-11-23); build 11 on universe (4.6.2
-`hc365614_11`) predates it and never looks in zig-libs (slice2/PLAN.md
-S2-F13).
+The first r-zig build that carries this section is 12, published on
+universe 2026-11-24 (4.6.2; win-64 r-zig-slim `hb04b5bb_12`, win-arm64
+`he73fba8_12`; r-zig-pixi release run 45381914199). Build 11 predates it
+and never looks in zig-libs (slice2/PLAN.md S2-F13). Consumers pin
+`r-zig-slim = { version = "4.6.2", build = "*_12" }` or later, with
+universe listed before conda-forge.
 
 - rzig (`zigbuild/tools/rzig/environment.zig`), environment order: R's
   own env's `zig-libs/<triple>` (when it exists), R's env, the
@@ -152,7 +154,9 @@ a `.pc` names is in `lib/`.
   against the new packages with r-zig from universe: the `r-consumer`
   job (build.yml; slice2/PLAN.md D113), `tests/r/install.R` then
   `tests/r/smoke.R` (sf, terra, gdalraster, s2, gmp, Rmpfr, igraph,
-  nloptr, units, on both arches). The publish job needs it.
+  nloptr, units, on both arches), with r-zig-slim and r-zig-toolchain
+  pinned to build 12 (D116). The publish job needs it, and it fails the
+  run.
 - r-zig-pixi verifies the published builds in its stress suite after it
   updates its lock, and reports anything that breaks this contract to
   libs-zig-pixi.

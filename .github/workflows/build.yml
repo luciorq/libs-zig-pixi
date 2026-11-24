@@ -311,17 +311,15 @@ jobs:
   # (D113); the upstream-zig leg comes later. No lock: a throwaway
   # manifest in RUNNER_TEMP.
   #
-  # Report-only until r-zig build 12 is on universe (slice2 PLAN.md D114,
-  # S2-F13): universe's r-zig (build 11) predates the zig-libs search
-  # (CONTRACT.md 6), so the "zig-libs paths" lines below stand in for it.
-  # When build 12 is published: drop continue-on-error and those lines.
+  # Required since r-zig build 12 (universe, 2026-11-24; slice2 PLAN.md
+  # D116): its Rcmd_environ points R at zig-libs (CONTRACT.md 6), so the
+  # build-11 emulation of D114 is gone. r-zig-slim/toolchain pinned *_12.
   r-consumer:
     name: r-consumer ${{ matrix.subdir }}
     needs: [plan, cross]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 150
-    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -376,7 +374,9 @@ jobs:
             echo "platforms = [\"$SUBDIR\"]"
             echo
             echo '[dependencies]'
-            for p in r-zig-slim r-zig-toolchain pkg-config $ZIG_LIBS $SYSDEPS; do echo "$p = \"*\""; done
+            # build 12: the first r-zig that searches zig-libs (CONTRACT 6)
+            for p in r-zig-slim r-zig-toolchain; do echo "$p = { version = \"4.6.2\", build = \"*_12\" }"; done
+            for p in pkg-config $ZIG_LIBS $SYSDEPS; do echo "$p = \"*\""; done
           } > "$ws/pixi.toml"
           cat "$ws/pixi.toml"
           pixi install --manifest-path "$ws/pixi.toml"
@@ -386,32 +386,9 @@ jobs:
             jq -r --arg c "$chan" '.[] | select(.name | startswith("zig-")) | select((.source // "") != $c) | "\(.name) \(.build) \(.source)"')
           if [ -n "$bad" ]; then echo "::error::zig-* not from this run's channel: $bad"; exit 1; fi
           echo "MANIFEST=$ws/pixi.toml" >> "$GITHUB_ENV"
-          # zig-libs paths: r-zig build 12 does this itself (rzig's zig-libs
-          # search; its etc/Rcmd_environ lines, r-zig-pixi build.zig
-          # rcmdEnviron, main f5a6c84). For build 11 (D114) the same lines
-          # are appended to this env's Rcmd_environ: R reads them after
-          # pixi's activation, whose pkg-config script prepends
-          # <env>/Library/lib/pkgconfig (conda-forge's openssl.pc, MSVC
-          # -llibssl) to PKG_CONFIG_PATH; an exported value would lose
-          # (slice2 S2-F16). Plus -I/-L in a user Makevars for rzig's search.
-          # Remove all of it with build 12.
-          case "$SUBDIR" in win-64) zt=x86_64-windows-gnu ;; win-arm64) zt=aarch64-windows-gnu ;; esac
-          envlib=$(cygpath -m "$ws/.pixi/envs/default/Library")
-          zl="$envlib/zig-libs/$zt"
-          # a private copy first: pixi may hardlink the file to its package
-          # cache, and an append would change the cached r-zig-slim too
-          rcmd="$envlib/lib/R/etc/Rcmd_environ"
-          cp "$rcmd" "$rcmd.new" && mv -f "$rcmd.new" "$rcmd"
-          {
-            echo "# libs-zig-pixi r-consumer: r-zig build 12's zig-libs lines (D114)"
-            echo "R_ZIG_LIBS=$zl"
-            echo 'PKG_CONFIG_PATH="${R_ZIG_LIBS}/lib/pkgconfig;${PKG_CONFIG_PATH}"'
-            echo "R_ZIG_PKG_CONFIG_LIBDIR=\${R_ZIG_LIBS}/lib/pkgconfig;$envlib/lib/pkgconfig;$envlib/share/pkgconfig"
-            echo 'PKG_CONFIG_LIBDIR="${PKG_CONFIG_LIBDIR-${R_ZIG_PKG_CONFIG_LIBDIR}}"'
-            echo 'R_TOOLS_SOFT=${R_TOOLS_SOFT-${R_ZIG_LIBS}}'
-          } | tee -a "$rcmd"
-          printf 'CPPFLAGS += -I%s/include\nLDFLAGS += -L%s/lib\n' "$zl" "$zl" > "$ws/Makevars.win"
-          echo "R_MAKEVARS_USER=$ws/Makevars.win" >> "$GITHUB_ENV"
+          # r-zig build 12 finds zig-libs itself (R_ZIG_LIBS, PKG_CONFIG_PATH
+          # and PKG_CONFIG_LIBDIR, R_TOOLS_SOFT in its Rcmd_environ;
+          # CONTRACT 6): nothing to add here
           echo "RSCRIPT=$(cygpath -m "$ws/.pixi/envs/default/Library/lib/R/bin/x64/Rscript.exe")" >> "$GITHUB_ENV"
       - name: Install the R packages from source
         timeout-minutes: 110

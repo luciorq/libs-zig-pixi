@@ -69,6 +69,9 @@ per-library fallback, text below).
 | D113 | How the r-consumer job (D102) tests R packages | A own harness: a pixi env of this run's channel, universe, conda-forge with r-zig-slim, r-zig-toolchain, the zig-* libraries and conda-forge sysdeps; `tests/r/install.R` (source installs) then `tests/r/smoke.R`; per-arch package lists (sf skips win-arm64 until zig-udunits2, batch 2); default leg first; B r-zig-pixi's stress.R pinned to a commit; C no r-consumer for batch 1 | A | no CI dependency on the consumer repo; the stress suite stays r-zig-pixi's (CONTRACT.md 7) | user ("continue with recommended") |
 | D114 | r-consumer while universe's r-zig (build 11) predates the zig-libs search (S2-F13; r-zig build 12 unpublished, no date: the r-zig-pixi user batches the release) | A report-only (`continue-on-error`) plus the r-zig-pixi session's emulation of build 12 in the job (PKG_CONFIG_PATH, R_MAKEVARS_USER -I/-L, R_TOOLS_SOFT); flip to required and drop the emulation when build 12 is on universe; B report-only, no emulation (no signal until build 12); C hold the batch-1 publish until build 12 | A | signal now (S2-F14: it works on kappa); nothing blocks on the other repo's release; the r-zig-pixi session's first preference is report-only, emulation its option 2; it asked not to build r-zig from its main | default, user may revisit |
 | D115 | CI build time (S2-F23): reuse what has not changed | A a shared zig global cache per job, kept between runs (activation honours `LIBS_ZIG_CACHE`, passed by each recipe's `env.get`; pkgtest and the test command use zig's per-user cache), in this PR while zig-toolchain 0.2.0 and the build-1 bumps are unpublished; then, in its own PR, build only what universe lacks (`--skip-existing=all`, the D96 recipe check moved to the start); B the skip only; C the cache only; D prototype both first | A | the cache needs a toolchain and test-file change that is free before the batch-1 publish; archives stay byte-identical (S2-F23) | user ("Apply the recommended", 2026-11-24) |
+| D116 | r-consumer once r-zig build 12 is on universe (D114's exit condition; r-zig-pixi session message 2026-11-24: build 12 published, release run 45381914199, pre-merge stress 45305358893 ok for sf, terra, gdalraster, lwgeom, s2 on both Windows arches) | A drop the D114 emulation (the appended Rcmd_environ lines, the user Makevars) and `continue-on-error`, pin r-zig-slim and r-zig-toolchain to `4.6.2 *_12`; B keep it report-only one more batch | A, dated 2026-11-24, in the batch-2 PR (#8) so its run is the first with the job required | D114 said to drop both with build 12; the pin keeps an older r-zig from being picked, where the job would fail for a reason not in this repo | mine (D114 exit), on the r-zig-pixi session's request |
+| D117 | Fence the host gfortran that udunits' `AC_PROG_FC` finds on the GitHub runner (S2-F24) | A `FC=no F77=no` on zig-udunits2's configure line only, the helper fence later; B the same two fences in `zig-toolchain configure` now; C helper fence after a batch-1 publish (12 libraries to build 2) | B, dated 2026-11-24 (first A; B once D118 removed the batch-1 publish: zig-toolchain 0.2.0 is unpublished, so the fence changes no version and no build string) | one fence for every autotools library (hdf5 and netcdf come with optional Fortran parts); UDUNITS-2 has no Fortran API ("No Fortran or Perl API", udunits2.texi; lib/ builds C only), so the fence drops nothing; gmp, mpfr, glpk, gsl probe no Fortran | mine, after the user's D118 |
+| D118 | Release cadence for the rest of slice 2 (replaces D106A) | A publish per batch (D106); B one PR for all remaining slice-2 work, one publish at the end | B, dated 2026-11-24 | user: "We don't need to publish anything now. Let's fold all ongoing work on a single PR with all builds we have in our ongoing list." Batch 1 (merged, PR #7) stays unpublished; PR #8 (branch feat-slice2-batch2) carries batch 2 and the D103 rest (gsl, libpq, the text stack, libxml2, the data stack); one handover to r-zig-pixi after that publish | user |
 
 D104 in the user's words: "As soon as cross-compiling a library with
 autotools gets tricky, stop and switch that library to another path
@@ -446,9 +449,10 @@ fills it; PR runs read main's).
   `lib<n>.a` only, no collisions), and duplicate-symbol checks across the
   closure (pkgtest) get larger.
 
-## Handover to r-zig-pixi (per batch, CONTRACT.md 8)
+## Handover to r-zig-pixi (CONTRACT.md 8)
 
-After each publish: names, subdirs and build strings; contract changes;
+One handover for all of slice 2, after its single publish (D118; the
+per-batch drafts below are merged into it then). After the publish: names, subdirs and build strings; contract changes;
 then r-zig-pixi adds the packages to its Windows stress env, updates
 `packages.tsv` sysdeps and expects (`windows-aarch64=` keys), relocks,
 runs stress on both Windows arches, and removes a library from
@@ -560,6 +564,25 @@ stress env; `packages.tsv`: nloptr's `nlopt@windows` becomes
 `zig-nlopt@windows`, units (and sf, lwgeom through it) take
 `zig-udunits2@windows`; lme4 follows nloptr; drop nlopt and udunits2 from
 `rtools_has` once no win-arm64 row resolves them from the tree.
+
+**S2-F24 V. udunits' configure finds the runner's gfortran; libtool
+then names the archive `.lib` (2026-11-24).** PR #8 run 45382544600:
+cross win-64 and win-arm64 fail in zig-udunits2's package content test
+(`lib/libudunits2.a` missing, `lib/libudunits2.lib` present). Its log:
+`checking for gfortran... gfortran`, `WARNING: using cross tools not
+prefixed with host triplet`, `whether we are using the GNU Fortran
+compiler... no`. configure.ac line 95 is `AC_PROG_FC`; the GitHub
+ubuntu image has `/usr/bin/gfortran` (gamma has none, so the local
+builds of S2-F20 gave `.a`), and the build script's PATH keeps
+`/usr/bin` (M5-F27). libtool configures an FC tag for it, takes the
+non-GNU (MSVC) branch and sets `libext=lib`. Reproduced on gamma with a
+stand-in `gfortran` (`exec /bin/false`) on PATH: `libext=lib`.
+`FC=false F77=false` still gives `lib` (libtool skips the tag only for
+an empty FC or `no`); `FC=no F77=no` gives `libext=a`, a libtool
+config block and config.h identical to the no-gfortran build, and
+`libudunits2.a`. The recipe build with the fence (win-64, gamma) passes
+its tests. gmp, mpfr, glpk and gsl 2.7.1 configure scripts have no
+FC/F77 probe. Fix D117.
 
 **S2-F21 V. gsl 2.7.1 prototype for batch 3 (manual, 2026-11-24, not in
 this batch).** sha256 `dcb0fbd4...eeb34b` (ftpmirror.gnu.org and
