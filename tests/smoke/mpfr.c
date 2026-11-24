@@ -5,7 +5,9 @@
 #include <mpfr.h>
 
 int main(void) {
-    const char *want = "3.14159265358979323846264338327950288419716939937510";
+    /* pi = 3.14159265358979323846264338327950288419716939937510 58209...,
+       so correctly rounded to 50 decimals the last digit is 1 */
+    const char *want = "3.14159265358979323846264338327950288419716939937511";
     char got[64];
     mpfr_t pi;
     mpfr_init2(pi, 200);

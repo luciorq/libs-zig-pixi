@@ -381,6 +381,25 @@ zig-mpfr `zig_032ea3f_0`, zig-glpk `zig_668bbc6_0`. check-alignment
 25 new, 0 already published". Not run on win-arm64 hardware: the smoke
 programs and R packages (CI's test and r-consumer jobs).
 
+**S2-F18 V. PR #7 CI, run 45285470540 (head 4d4a5f4, pull_request,
+default leg), 2026-11-24.** plan, toolchain (the new configure tests
+included), cross win-64 and win-arm64, alignment: success. Build strings
+are the same as the local builds (S2-F15, S2-F17). test win-64 and test
+win-arm64: "12 package(s) tested, 1 failed: zig-mpfr". The 11 others ran
+their smoke programs on the runner ("ran: OK", "all checks passed"),
+gmp's C and C++ and glpk's included. zig-mpfr failed in its smoke
+program only: `FAIL: pi = 3.14159265358979323846264338327950288419716939937511
+(want ...937510)`. The test was wrong: pi = ...937510 58209..., so the
+correctly rounded 50-decimal value ends in 1, and MPFR's output is right.
+tests/smoke/mpfr.c now expects ...937511; checked on linux against
+conda-forge mpfr 4.2.2 ("OK"). Its TLS assertion has not run on Windows
+yet (the program stopped at pi). r-consumer (report-only, D114): win-64
+installed sf, terra, gdalraster, s2, gmp, Rmpfr, igraph (21.2 min),
+smoke 30/30 PASS; win-arm64 installed terra, gdalraster, s2, gmp, Rmpfr,
+igraph (16.1 min), smoke 23/23 PASS, the first R evidence on win-arm64
+for gmp, Rmpfr, igraph (GLPK, libxml2) against zig-* packages. Every
+zig-* came from the run's channel (`pixi list` source column).
+
 ## Known risks (from slice 1 and M5)
 
 - Host-tool leaks on the hosted runner (swig D78, pkg-config and bison
