@@ -596,3 +596,20 @@ prefix for close-pc); also gsl-config, two programs, man/info pages (to
 remove). Configure: "IEEE arithmetic interface type... unknown", so
 `gsl_ieee_env_setup` has no FP-mode support on MinGW (I: as a native
 MinGW build; R's gsl package does not call it).
+
+**S2-F25 V. zig-gsl 2.7.1 (batch 3, folded into PR #8 by D118;
+2026-11-24).** Recipe recipes/zig-gsl: plain `zig-toolchain configure`
+(no option, no cache answer, no patch: no D104 trigger), upstream gsl.pc
+closed by close-pc (`-lgsl -lgslcblas -lm`; `-lm` is zig's MinGW libc,
+pkgtest: "a system library"), bin/ and share/ removed (gsl-config is a
+script with the prefix compiled in). Local builds on gamma with the
+FC/F77 fence (D117): win-64 `zig_3d4d675_0`, win-arm64 `zig_67fdb26_0`,
+recipe tests pass (pkgtest: 2 archives, no build path, 0 symbols in both,
+no -export: directive; smoke links, PE 0x8664 / 0xaa64). kappa win-64:
+tests/smoke/gsl.c (J0(5), gamma(5.5), dgemm through gslcblas, qagi
+integral, rkf45 ODE, the mt19937 first draw, version) prints OK; an env
+of r-zig-slim `hb04b5bb_12` and r-zig-toolchain `h3946dc3_12` (universe,
+no emulation) plus this zig-gsl installs CRAN gsl 2.1-9 from source (its
+Makevars.win is `-L$(LIB_GSL)/lib -lgsl -lgslcblas`; kappa has no
+Rtools45 tree and no fallback, so -lgsl resolved in zig-libs) and
+tests/r/smoke.R gsl passes 3/3. r-consumer lists gsl on both arches.

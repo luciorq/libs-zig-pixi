@@ -329,19 +329,19 @@ jobs:
           - subdir: win-64
             runner: windows-latest
             sysdeps: libxml2-devel cmake
-            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units
+            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units gsl
           - subdir: win-arm64
             runner: windows-11-arm
             sysdeps: libxml2-devel cmake
-            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units
+            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units gsl
     env:
       SUBDIR: ${{ matrix.subdir }}
       SYSDEPS: ${{ matrix.sysdeps }}
       PACKAGES: ${{ matrix.packages }}
       # the zig-* libraries the packages link (sf, terra, gdalraster: gdal,
       # geos, proj; terra: onetbb; s2: abseil, openssl; gmp, Rmpfr, igraph:
-      # gmp, mpfr, glpk; nloptr: nlopt; units: udunits2, expat)
-      ZIG_LIBS: zig-gdal zig-geos zig-proj zig-onetbb zig-abseil zig-openssl zig-gmp zig-mpfr zig-glpk zig-nlopt zig-udunits2 zig-expat
+      # gmp, mpfr, glpk; nloptr: nlopt; units: udunits2, expat; gsl: gsl)
+      ZIG_LIBS: zig-gdal zig-geos zig-proj zig-onetbb zig-abseil zig-openssl zig-gmp zig-mpfr zig-glpk zig-nlopt zig-udunits2 zig-expat zig-gsl
     steps:
       - name: Defender exclusions
         shell: pwsh

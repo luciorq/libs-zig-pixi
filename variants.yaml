@@ -84,3 +84,5 @@ nlopt_version:
   - "2.10.0"
 udunits2_version:
   - "2.2.28"
+gsl_version:
+  - "2.7.1"

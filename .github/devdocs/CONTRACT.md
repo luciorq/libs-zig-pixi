@@ -18,8 +18,9 @@ they differ from this summary.
   and win-arm64: zig-zlib, zig-sqlite, zig-expat, zig-openssl,
   zig-abseil, zig-onetbb, zig-geos, zig-proj, zig-gdal; from slice 2
   batch 1 (slice2/PLAN.md) also zig-gmp (with gmpxx), zig-mpfr,
-  zig-glpk; from batch 2 zig-nlopt, zig-udunits2. `zig-toolchain` (linux-64) is the build tool, not for
-  consumers.
+  zig-glpk; from batch 2 zig-nlopt, zig-udunits2; from batch 3 zig-gsl
+  (libgsl.a and GSL's own CBLAS, libgslcblas.a). `zig-toolchain`
+  (linux-64) is the build tool, not for consumers.
 - Only published builds are part of the contract. A consumer never
   depends on a libs-zig-pixi CI artifact (r-zig-pixi PR #52 removed
   `--libs-channel`).
@@ -154,7 +155,7 @@ a `.pc` names is in `lib/`.
   against the new packages with r-zig from universe: the `r-consumer`
   job (build.yml; slice2/PLAN.md D113), `tests/r/install.R` then
   `tests/r/smoke.R` (sf, terra, gdalraster, s2, gmp, Rmpfr, igraph,
-  nloptr, units, on both arches), with r-zig-slim and r-zig-toolchain
+  nloptr, units, gsl, on both arches), with r-zig-slim and r-zig-toolchain
   pinned to build 12 (D116). The publish job needs it, and it fails the
   run.
 - r-zig-pixi verifies the published builds in its stress suite after it

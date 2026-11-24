@@ -1,13 +1,13 @@
 # Smoke test of the R packages that link the zig-* libraries (DESIGN 9.2,
-# M4; slice 2 adds gmp, Rmpfr, igraph, nloptr, units): sf, terra,
-# gdalraster, s2, gmp, Rmpfr, igraph, nloptr, units. Run it with the R that
+# M4; slice 2 adds gmp, Rmpfr, igraph, nloptr, units, gsl): sf, terra,
+# gdalraster, s2, gmp, Rmpfr, igraph, nloptr, units, gsl. Run it with the R that
 # installed them:
 #   Rscript tests/r/smoke.R [package ...]      (default: all of them)
 # Each check prints one "SMOKE <name> PASS|FAIL|ERROR" line; the script
 # exits with status 1 when any check is not PASS. First run: kappa win-64,
 # 2026-11-22 (r-zig-pixi feat-zig-libs PLAN.md).
 args <- commandArgs(trailingOnly = TRUE)
-pkgs <- if (length(args)) args else c("sf", "terra", "gdalraster", "s2", "gmp", "Rmpfr", "igraph", "nloptr", "units")
+pkgs <- if (length(args)) args else c("sf", "terra", "gdalraster", "s2", "gmp", "Rmpfr", "igraph", "nloptr", "units", "gsl")
 
 res <- character()
 chk <- function(name, expr) {
@@ -214,6 +214,23 @@ if ("units" %in% pkgs) {
   })
   chk("units: incompatible units are an error", {
     inherits(try(set_units(set_units(1, kg), m), silent = TRUE), "try-error")
+  })
+}
+
+# slice 2 batch 3: zig-gsl (gsl: special functions, GSL's own CBLAS is
+# linked but not called)
+if ("gsl" %in% pkgs) {
+  library(gsl)
+  chk("gsl: bessel_J0(5)", {
+    abs(bessel_J0(5) - (-0.17759677131433830)) < 1e-15
+  })
+  chk("gsl: gamma via lngamma, hyperg_1F1", {
+    abs(exp(lngamma(5.5)) - gamma(5.5)) < 1e-10 &&
+      abs(hyperg_1F1(1, 1, 2) - exp(2)) < 1e-12
+  })
+  chk("gsl: GSL error comes back as an R error or NaN", {
+    v <- tryCatch(bessel_Kn(-1, 0), error = function(e) NaN, warning = function(w) NaN)
+    is.nan(v) || is.infinite(v)
   })
 }
 
