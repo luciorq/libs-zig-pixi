@@ -223,7 +223,7 @@ jobs:
     # only its own test leg (at the artifact download), not all of them
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 120
+    timeout-minutes: 200
     strategy:
       fail-fast: false
       matrix:
@@ -277,9 +277,10 @@ jobs:
       # catches a hung process spawn (r-zig-pixi's windows-latest MSYS
       # flake).
       # 45 minutes ran out with 15 packages and a cold zig cache (slice2
-      # PLAN.md S2-F28); slice 2 adds more.
+      # PLAN.md S2-F28); the text stack brings 28 (each test links its
+      # smoke program, about 3 minutes cold).
       - name: rattler-build test each package
-        timeout-minutes: 100
+        timeout-minutes: 180
         run: |
           chan="file:///$(cygpath -m "$PWD")/channel"
           failed=() n=0
@@ -334,12 +335,12 @@ jobs:
           - subdir: win-64
             runner: windows-latest
             sysdeps: libxml2-devel cmake libboost-headers
-            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units gsl RPostgres
+            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units gsl RPostgres png jpeg tiff webp systemfonts textshaping ragg
             pgserver: "16.*"
           - subdir: win-arm64
             runner: windows-11-arm
             sysdeps: libxml2-devel cmake libboost-headers
-            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units gsl RPostgres
+            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units gsl RPostgres png jpeg tiff webp systemfonts textshaping ragg
             pgserver: ""
     env:
       SUBDIR: ${{ matrix.subdir }}
@@ -348,8 +349,10 @@ jobs:
       # the zig-* libraries the packages link (sf, terra, gdalraster: gdal,
       # geos, proj; terra: onetbb; s2: abseil, openssl; gmp, Rmpfr, igraph:
       # gmp, mpfr, glpk; nloptr: nlopt; units: udunits2, expat; gsl: gsl;
-      # RPostgres: libpq, openssl)
-      ZIG_LIBS: zig-gdal zig-geos zig-proj zig-onetbb zig-abseil zig-openssl zig-gmp zig-mpfr zig-glpk zig-nlopt zig-udunits2 zig-expat zig-gsl zig-libpq
+      # RPostgres: libpq, openssl; png, jpeg, tiff, webp, systemfonts,
+      # textshaping, ragg: the text stack and its compression libraries,
+      # D122; they come with the six named here)
+      ZIG_LIBS: zig-gdal zig-geos zig-proj zig-onetbb zig-abseil zig-openssl zig-gmp zig-mpfr zig-glpk zig-nlopt zig-udunits2 zig-expat zig-gsl zig-libpq zig-libpng zig-libjpeg zig-libtiff zig-libwebp zig-freetype zig-harfbuzz zig-fribidi
     steps:
       - name: Defender exclusions
         shell: pwsh
@@ -396,7 +399,10 @@ jobs:
           echo "MANIFEST=$ws/pixi.toml" >> "$GITHUB_ENV"
           # r-zig build 12 finds zig-libs itself (R_ZIG_LIBS, PKG_CONFIG_PATH
           # and PKG_CONFIG_LIBDIR, R_TOOLS_SOFT in its Rcmd_environ;
-          # CONTRACT 6): nothing to add here
+          # CONTRACT 6). LOCAL_SOFT stays empty there; the install step
+          # sets it (slice2 PLAN.md S2-F30, D124)
+          case "$SUBDIR" in win-64) zt=x86_64-windows-gnu ;; win-arm64) zt=aarch64-windows-gnu ;; esac
+          echo "ZIG_LIBS_TREE=$ws/.pixi/envs/default/Library/zig-libs/$zt" >> "$GITHUB_ENV"
           echo "RSCRIPT=$(cygpath -m "$ws/.pixi/envs/default/Library/lib/R/bin/x64/Rscript.exe")" >> "$GITHUB_ENV"
       # A throwaway PostgreSQL cluster in its own env (its libpq.pc never
       # reaches R's builds). The Smoke step starts and stops its server, so
@@ -418,6 +424,9 @@ jobs:
         env:
           R_INSTALL_LOGS: ${{ runner.temp }}/install-logs
         run: |
+          # CRAN jpeg looks for libjpeg only in $(LOCAL_SOFT)/lib, which
+          # r-zig build 12 leaves empty (S2-F30): zig-libs until r-zig decides
+          export LOCAL_SOFT="$ZIG_LIBS_TREE"
           # one package per word
           # shellcheck disable=SC2086
           pixi run --manifest-path "$MANIFEST" "$RSCRIPT" "$(cygpath -m "$GITHUB_WORKSPACE/tests/r/install.R")" $PACKAGES
