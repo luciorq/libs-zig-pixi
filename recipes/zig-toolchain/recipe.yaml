@@ -68,6 +68,8 @@ tests:
       # meson's windows module types a windres by "GNU windres" (D120)
       - x86_64-w64-mingw32-windres --version | grep -q 'GNU windres'
       - aarch64-w64-mingw32-cc -c hello.c -o h.o && aarch64-w64-mingw32-ar rcs libh.a h.o && aarch64-w64-mingw32-ranlib libh.a
+      # -c without -o names the object hello.o, as MinGW gcc (zig: hello.obj)
+      - x86_64-w64-mingw32-cc -c hello.c && test -f hello.o && test ! -e hello.obj
       - zig-toolchain pe-machine hello-x86_64.exe hellopp-x86_64.exe r-x86_64.o | tee m64.txt
       - zig-toolchain pe-machine hello-aarch64.exe hellopp-aarch64.exe r-aarch64.o | tee marm.txt
       - test "$(grep -c 'x86_64$' m64.txt)" = 3
