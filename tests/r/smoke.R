@@ -1,6 +1,8 @@
 # Smoke test of the R packages that link the zig-* libraries (DESIGN 9.2,
-# M4; slice 2 adds gmp, Rmpfr, igraph, nloptr, units, gsl, RPostgres): sf,
-# terra, gdalraster, s2, gmp, Rmpfr, igraph, nloptr, units, gsl, RPostgres.
+# M4; slice 2 adds gmp, Rmpfr, igraph, nloptr, units, gsl, RPostgres and
+# the text stack's png, jpeg, tiff, webp, systemfonts, textshaping, ragg):
+# sf, terra, gdalraster, s2, gmp, Rmpfr, igraph, nloptr, units, gsl,
+# RPostgres, png, jpeg, tiff, webp, systemfonts, textshaping, ragg.
 # RPostgres' query checks need a server: R_SMOKE_PG names one as libpq
 # connection keywords (e.g. "host=127.0.0.1 port=5432 user=postgres
 # dbname=postgres"); without it they are left out. Run it with the R that
@@ -10,7 +12,8 @@
 # exits with status 1 when any check is not PASS. First run: kappa win-64,
 # 2026-11-22 (r-zig-pixi feat-zig-libs PLAN.md).
 args <- commandArgs(trailingOnly = TRUE)
-pkgs <- if (length(args)) args else c("sf", "terra", "gdalraster", "s2", "gmp", "Rmpfr", "igraph", "nloptr", "units", "gsl", "RPostgres")
+pkgs <- if (length(args)) args else c("sf", "terra", "gdalraster", "s2", "gmp", "Rmpfr", "igraph", "nloptr", "units", "gsl", "RPostgres",
+                                         "png", "jpeg", "tiff", "webp", "systemfonts", "textshaping", "ragg")
 
 res <- character()
 chk <- function(name, expr) {
@@ -263,6 +266,83 @@ if ("RPostgres" %in% pkgs) {
     })
     dbDisconnect(con)
   }
+}
+
+# slice 2 text stack (D122): libpng, libjpeg, libtiff (its codecs), libwebp,
+# freetype, harfbuzz, fribidi
+# a smooth image: red rises left to right, green and blue flat (lossy
+# codecs blur sharp edges in chroma, so a striped image is no test)
+img <- array(0, c(16, 32, 3))
+img[, , 1] <- rep(seq(0, 1, length.out = 32), each = 16)
+img[, , 2] <- 0.25
+img[, , 3] <- 0.75
+if ("png" %in% pkgs) {
+  chk("png: write and read an RGB image", {
+    f <- tempfile(fileext = ".png"); png::writePNG(img, f)
+    max(abs(png::readPNG(f) - img)) < 1 / 255 + 1e-9
+  })
+}
+if ("jpeg" %in% pkgs) {
+  chk("jpeg: write and read (lossy, close)", {
+    f <- tempfile(fileext = ".jpg"); jpeg::writeJPEG(img, f, quality = 0.95)
+    r <- jpeg::readJPEG(f)
+    identical(dim(r), dim(img)) && mean(abs(r - img)) < 0.02
+  })
+}
+if ("tiff" %in% pkgs) {
+  for (cmp in c("LZW", "deflate", "none")) local({
+    cmp <- cmp
+    chk(sprintf("tiff: write and read (%s)", cmp), {
+      f <- tempfile(fileext = ".tif"); tiff::writeTIFF(img, f, compression = cmp)
+      max(abs(tiff::readTIFF(f) - img)) < 1 / 255 + 1e-9
+    })
+  })
+  chk("tiff: write and read (JPEG, close)", {
+    f <- tempfile(fileext = ".tif"); tiff::writeTIFF(img, f, compression = "JPEG")
+    mean(abs(tiff::readTIFF(f) - img)) < 0.03
+  })
+}
+if ("webp" %in% pkgs) {
+  chk("webp: write and read (lossy, close)", {
+    a <- array(1, c(16, 32, 4)); a[, , 1:3] <- img
+    f <- tempfile(fileext = ".webp"); webp::write_webp(a, f, quality = 100)
+    r <- webp::read_webp(f)
+    identical(dim(r), c(16L, 32L, 4L)) && mean(abs(r[, , 1:3] - img)) < 0.03
+  })
+}
+if ("systemfonts" %in% pkgs) {
+  chk("systemfonts: system fonts found (freetype)", {
+    nrow(systemfonts::system_fonts()) > 0 && file.exists(systemfonts::match_fonts("sans")$path)
+  })
+}
+if ("textshaping" %in% pkgs) {
+  chk("textshaping: shape Latin text (harfbuzz)", {
+    s <- textshaping::shape_text("Hello world")$shape
+    nrow(s) == 11 && all(diff(s$x_offset) >= 0) && max(s$x_offset) > 0
+  })
+  chk("textshaping: right-to-left Hebrew (fribidi)", {
+    s <- textshaping::shape_text("\u05e9\u05dc\u05d5\u05dd abc")$shape
+    nrow(s) == 8 && all(s$index > 0)
+  })
+}
+if ("ragg" %in% pkgs) {
+  draw <- function() { plot(1:10, main = "zig-libs"); text(5, 5, "Hello \u05e9\u05dc\u05d5\u05dd", cex = 2) }
+  chk("ragg: agg_png with text (freetype, libpng)", {
+    f <- tempfile(fileext = ".png"); ragg::agg_png(f, 300, 200); draw(); dev.off()
+    # reading it back needs png (in the default list); without it, its size
+    if (requireNamespace("png", quietly = TRUE)) {
+      r <- png::readPNG(f); identical(dim(r)[1:2], c(200L, 300L)) && min(r[, , 1:3]) < 0.5
+    } else file.size(f) > 1000
+  })
+  chk("ragg: agg_tiff and agg_jpeg write files (libtiff, libjpeg)", {
+    f1 <- tempfile(fileext = ".tif"); ragg::agg_tiff(f1, 300, 200, compression = "lzw"); draw(); dev.off()
+    f2 <- tempfile(fileext = ".jpg"); ragg::agg_jpeg(f2, 300, 200); draw(); dev.off()
+    file.size(f1) > 1000 && file.size(f2) > 1000
+  })
+  chk("ragg: agg_webp writes a file (libwebp)", {
+    f <- tempfile(fileext = ".webp"); ragg::agg_webp(f, 300, 200); draw(); dev.off()
+    file.size(f) > 100
+  })
 }
 
 cat("\nSUMMARY\n")
