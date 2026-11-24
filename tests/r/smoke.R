@@ -1,8 +1,8 @@
 # Smoke test of the R packages that link the zig-* libraries (DESIGN 9.2,
 # M4; slice 2 adds gmp, Rmpfr, igraph, nloptr, units, gsl, RPostgres and
-# the text stack's png, jpeg, tiff, webp, systemfonts, textshaping, ragg):
-# sf, terra, gdalraster, s2, gmp, Rmpfr, igraph, nloptr, units, gsl,
-# RPostgres, png, jpeg, tiff, webp, systemfonts, textshaping, ragg.
+# the text stack's png, jpeg, tiff, webp, systemfonts, textshaping, ragg,
+# and xml2): sf, terra, gdalraster, s2, gmp, Rmpfr, igraph, nloptr, units,
+# gsl, RPostgres, png, jpeg, tiff, webp, systemfonts, textshaping, ragg, xml2.
 # RPostgres' query checks need a server: R_SMOKE_PG names one as libpq
 # connection keywords (e.g. "host=127.0.0.1 port=5432 user=postgres
 # dbname=postgres"); without it they are left out. Run it with the R that
@@ -13,7 +13,7 @@
 # 2026-11-22 (r-zig-pixi feat-zig-libs PLAN.md).
 args <- commandArgs(trailingOnly = TRUE)
 pkgs <- if (length(args)) args else c("sf", "terra", "gdalraster", "s2", "gmp", "Rmpfr", "igraph", "nloptr", "units", "gsl", "RPostgres",
-                                         "png", "jpeg", "tiff", "webp", "systemfonts", "textshaping", "ragg")
+                                         "png", "jpeg", "tiff", "webp", "systemfonts", "textshaping", "ragg", "xml2")
 
 res <- character()
 chk <- function(name, expr) {
@@ -342,6 +342,26 @@ if ("ragg" %in% pkgs) {
   chk("ragg: agg_webp writes a file (libwebp)", {
     f <- tempfile(fileext = ".webp"); ragg::agg_webp(f, 300, 200); draw(); dev.off()
     file.size(f) > 100
+  })
+}
+
+# slice 2 libxml2 (D125 B): zig-libxml2 with zig-libiconv, zlib and lzma
+if ("xml2" %in% pkgs) {
+  chk("xml2: parse and XPath (libxml2)", {
+    d <- xml2::read_xml("<a><b n='1'>x</b><b n='2'>y</b></a>")
+    identical(xml2::xml_text(xml2::xml_find_all(d, "//b[@n='2']")), "y")
+  })
+  chk("xml2: ISO-8859-1 document (built-in encoding)", {
+    raw <- c(charToRaw("<?xml version='1.0' encoding='ISO-8859-1'?><a>caf"), as.raw(0xe9), charToRaw("</a>"))
+    identical(xml2::xml_text(xml2::read_xml(raw)), "caf\u00e9")
+  })
+  chk("xml2: Shift_JIS document (iconv)", {
+    raw <- c(charToRaw("<?xml version='1.0' encoding='Shift_JIS'?><a>"), as.raw(c(0x93, 0xfa, 0x96, 0x7b)), charToRaw("</a>"))
+    identical(xml2::xml_text(xml2::read_xml(raw)), "\u65e5\u672c")
+  })
+  chk("xml2: gzip-compressed file (zlib)", {
+    f <- tempfile(fileext = ".xml.gz"); con <- gzfile(f, "w"); writeLines("<a><b>gz</b></a>", con); close(con)
+    identical(xml2::xml_text(xml2::read_xml(f)), "gz")
   })
 }
 
