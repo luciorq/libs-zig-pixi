@@ -1,0 +1,19 @@
+From Rtools45's MXE (R-dev-web trunk WindowsBuilds/winutf8/ucrt3/toolchain_libs/
+mxe/src/hdf4-2-aarch64.patch), the same one-line change: hdfi.h picks the
+machine section from compiler macros and has none for 64-bit ARM, so on
+aarch64-windows it stops with "No machine type has been defined". Windows
+on ARM64 is little-endian with the same type sizes as x64, so it takes the
+PC (INTEL86/WIN386) section; _M_ARM64 comes from MinGW's _mingw_mac.h
+(through the <stdio.h> hdfi.h includes first), as _M_X64 does on x86_64.
+
+--- a/hdf/src/hdfi.h
++++ b/hdf/src/hdfi.h
+@@ -552,7 +552,7 @@
+ /* Metrowerks Mac compiler defines some PC stuff so need to exclude this on the Mac */
+ #if !(defined (__APPLE__))
+ 
+-#if defined _M_ALPHA || defined _M_X64 || defined _M_IA64 || defined _M_IX86 || defined INTEL86 || defined M_I86 || defined M_I386 || defined DOS386 || defined __i386 || defined UNIX386 || defined i386
++#if defined _M_ALPHA || defined _M_X64 || defined _M_IA64 || defined _M_IX86 || defined INTEL86 || defined M_I86 || defined M_I386 || defined DOS386 || defined __i386 || defined UNIX386 || defined i386 || defined _M_ARM64
+ #ifndef INTEL86
+ #define INTEL86
+ #endif /* INTEL86 */

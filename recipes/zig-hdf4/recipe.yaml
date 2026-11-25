@@ -1,0 +1,128 @@
+# zig-hdf4: HDF4 4.2.15 (the version Rtools45 ships), static only, for
+# Windows (win-64, win-arm64), cross-built on linux with zig-toolchain
+# through HDF4's own CMake build (D1), with zlib, IJG libjpeg and szip
+# (libaec) from their zig-* packages; szip and HDF4 for hdf5/netcdf, as
+# Rtools45 (slice2 D127 C). The netCDF-2 API built renamed (sd_*), as
+# MXE's --disable-netcdf, so it links next to netcdf-c. HDF4's bundled XDR
+# instead of MXE's portablexdr. No Fortran, Java, tools, utilities,
+# examples or tests. Installed under the private sub-prefix
+# Library/zig-libs/<zig triple>/ (D2): lib/{libdf,libmfhdf,libxdr}.a,
+# include/ (hdf.h, mfhdf.h, hdf4_netcdf.h, h4config.h, xdr.h, ...),
+# lib/pkgconfig/{df,mfhdf}.pc (as Rtools45's, written by the recipe;
+# closed, relocatable), licenses/hdf4/.
+context:
+  version: ${{ hdf4_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-hdf4
+  version: ${{ version }}
+
+source:
+  - url: https://support.hdfgroup.org/ftp/HDF/releases/HDF${{ version }}/src/hdf-${{ version }}.tar.bz2
+    sha256: bde035ef5a1cd5fdbd0a7f1fa5c17e98bbd599300189ac4d234f16e9bb7bcb12
+    patches:
+      # hdfi.h has no machine section for aarch64-windows; Rtools45's
+      # hdf4-2-aarch64.patch (the patch says why)
+      - 0001-hdfi-h-aarch64-windows.patch
+  # the package test (tests/pkgtest.zig, tests/smoke/hdf4.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # exact: puts cmake and ninja in the hash (variants.yaml)
+    - cmake ==${{ cmake }}
+    - ninja ==${{ ninja }}
+  host:
+    - zig-zlib
+    - zig-libjpeg
+    - zig-libaec
+  run_exports:
+    weak:
+      - ${{ pin_subpackage("zig-hdf4", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libdf.a
+          - ${{ sub }}/lib/libmfhdf.a
+          - ${{ sub }}/lib/libxdr.a
+          - ${{ sub }}/include/hdf.h
+          - ${{ sub }}/include/mfhdf.h
+          - ${{ sub }}/include/hdf4_netcdf.h
+          - ${{ sub }}/include/h4config.h
+          - ${{ sub }}/include/xdr.h
+          - ${{ sub }}/lib/pkgconfig/df.pc
+          - ${{ sub }}/lib/pkgconfig/mfhdf.pc
+          - ${{ sub }}/licenses/hdf4/COPYING
+          - ${{ sub }}/licenses/hdf4/xdr-LICENSE
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library; no libhdf.a (renamed libdf.a), no netcdf.h (netCDF-2
+        # API renamed: hdf4_netcdf.h), no private error.h/alloc.h (would
+        # shadow MinGW's error.h), no tools, no Fortran, no CMake config,
+        # no hdf-4.2.15.pc, no build summary
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.exe"
+          - "**/*.mod"
+          - ${{ sub }}/lib/libhdf.a
+          - ${{ sub }}/include/netcdf.h
+          - ${{ sub }}/include/error.h
+          - ${{ sub }}/include/alloc.h
+          - ${{ sub }}/lib/libhdf4.settings
+          - ${{ sub }}/lib/pkgconfig/hdf-*.pc
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/share/**
+          - ${{ sub }}/cmake/**
+          - ${{ sub }}/lib/cmake/**
+  # tests/pkgtest.zig (its header says what it checks): mfhdf.pc pulls
+  # df.pc and through it zig-zlib's zlib.pc, zig-libjpeg's libjpeg.pc and
+  # zig-libaec's szip.pc (--require -l<n> for each); the relocated .pc
+  # resolves to existing paths, no absolute prefix in it, no build path in
+  # the archives, no C symbol defined in two archives of the closure (df
+  # and mfhdf among them), no dllexport directive, and tests/smoke/hdf4.c
+  # links (and runs, on Windows of the same arch: SDS written deflate- and
+  # szip-compressed with an attribute, read back and compared). One plain
+  # command for bash (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -lz --require -ljpeg --require -lsz ${{ zt }} mfhdf zig-libs-tests/smoke/hdf4.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/hdf4.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://www.hdfgroup.org/solutions/hdf4/
+  license: BSD-3-Clause
+  license_file: COPYING
+  summary: HDF4 (libdf, libmfhdf), static libraries for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/HDFGroup/hdf4
