@@ -1,12 +1,20 @@
 # Smoke test of the R packages that link the zig-* libraries (DESIGN 9.2,
-# M4; slice 2 adds gmp, Rmpfr, igraph): sf, terra, gdalraster, s2, gmp,
-# Rmpfr, igraph. Run it with the R that installed them:
+# M4; slice 2 adds gmp, Rmpfr, igraph, nloptr, units, gsl, RPostgres and
+# the text stack's png, jpeg, tiff, webp, systemfonts, textshaping, ragg,
+# xml2, and the data stack's hdf5r, ncdf4, RNetCDF): sf, terra, gdalraster,
+# s2, gmp, Rmpfr, igraph, nloptr, units, gsl, RPostgres, png, jpeg, tiff,
+# webp, systemfonts, textshaping, ragg, xml2, hdf5r, ncdf4, RNetCDF.
+# RPostgres' query checks need a server: R_SMOKE_PG names one as libpq
+# connection keywords (e.g. "host=127.0.0.1 port=5432 user=postgres
+# dbname=postgres"); without it they are left out. Run it with the R that
+# installed them:
 #   Rscript tests/r/smoke.R [package ...]      (default: all of them)
 # Each check prints one "SMOKE <name> PASS|FAIL|ERROR" line; the script
 # exits with status 1 when any check is not PASS. First run: kappa win-64,
 # 2026-11-22 (r-zig-pixi feat-zig-libs PLAN.md).
 args <- commandArgs(trailingOnly = TRUE)
-pkgs <- if (length(args)) args else c("sf", "terra", "gdalraster", "s2", "gmp", "Rmpfr", "igraph")
+pkgs <- if (length(args)) args else c("sf", "terra", "gdalraster", "s2", "gmp", "Rmpfr", "igraph", "nloptr", "units", "gsl", "RPostgres",
+                                         "png", "jpeg", "tiff", "webp", "systemfonts", "textshaping", "ragg", "xml2", "hdf5r", "ncdf4", "RNetCDF")
 
 res <- character()
 chk <- function(name, expr) {
@@ -179,6 +187,237 @@ if ("igraph" %in% pkgs) {
     write_graph(make_star(5), f, format = "graphml")
     g <- read_graph(f, format = "graphml")
     vcount(g) == 5 && ecount(g) == 4
+  })
+}
+
+# slice 2 batch 2: zig-nlopt (nloptr), zig-udunits2 (units, through
+# zig-expat)
+if ("nloptr" %in% pkgs) {
+  library(nloptr)
+  rosen <- function(x) 100 * (x[2] - x[1]^2)^2 + (1 - x[1])^2
+  grad <- function(x) c(-400 * x[1] * (x[2] - x[1]^2) - 2 * (1 - x[1]), 200 * (x[2] - x[1]^2))
+  chk("nloptr: Rosenbrock, LBFGS", {
+    r <- nloptr(c(-1.2, 1), rosen, grad, opts = list(algorithm = "NLOPT_LD_LBFGS", xtol_rel = 1e-10, maxeval = 1000))
+    r$status > 0 && max(abs(r$solution - 1)) < 1e-4
+  })
+  chk("nloptr: Rosenbrock, Nelder-Mead", {
+    r <- nloptr(c(-1.2, 1), rosen, opts = list(algorithm = "NLOPT_LN_NELDERMEAD", xtol_rel = 1e-10, maxeval = 5000))
+    r$status > 0 && max(abs(r$solution - 1)) < 1e-3
+  })
+  chk("nloptr: StoGO (NLopt's C++ code)", {
+    r <- nloptr(c(-1.2, 1), rosen, grad, lb = c(-2, -2), ub = c(2, 2),
+                opts = list(algorithm = "NLOPT_GD_STOGO", xtol_rel = 1e-8, maxeval = 5000))
+    r$status > 0 && max(abs(r$solution - 1)) < 1e-2
+  })
+}
+
+if ("units" %in% pkgs) {
+  library(units)
+  chk("units: 2.5 km in m", {
+    as.numeric(set_units(set_units(2.5, km), m)) == 2500
+  })
+  chk("units: derived units (km/h -> m/s)", {
+    abs(as.numeric(set_units(set_units(36, km/h), m/s)) - 10) < 1e-12
+  })
+  chk("units: incompatible units are an error", {
+    inherits(try(set_units(set_units(1, kg), m), silent = TRUE), "try-error")
+  })
+}
+
+# slice 2 batch 3: zig-gsl (gsl: special functions, GSL's own CBLAS is
+# linked but not called)
+if ("gsl" %in% pkgs) {
+  library(gsl)
+  chk("gsl: bessel_J0(5)", {
+    abs(bessel_J0(5) - (-0.17759677131433830)) < 1e-15
+  })
+  chk("gsl: gamma via lngamma, hyperg_1F1", {
+    abs(exp(lngamma(5.5)) - gamma(5.5)) < 1e-10 &&
+      abs(hyperg_1F1(1, 1, 2) - exp(2)) < 1e-12
+  })
+  chk("gsl: GSL error comes back as an R error or NaN", {
+    v <- tryCatch(bessel_Kn(-1, 0), error = function(e) NaN, warning = function(w) NaN)
+    is.nan(v) || is.infinite(v)
+  })
+}
+
+# slice 2: zig-libpq (RPostgres, through zig-openssl)
+if ("RPostgres" %in% pkgs) {
+  library(DBI)
+  chk("RPostgres: libpq 16.10 (PQlibVersion)", {
+    RPostgres:::client_version() == 160010L
+  })
+  chk("RPostgres: a refused connection is an error", {
+    !dbCanConnect(RPostgres::Postgres(), host = "127.0.0.1", port = 1L,
+                  connect_timeout = 5L, sslmode = "disable")
+  })
+  pg <- Sys.getenv("R_SMOKE_PG")
+  if (nzchar(pg)) {
+    kv <- regmatches(pg, gregexpr("[^ =]+=[^ ]*", pg))[[1]]
+    args <- setNames(as.list(sub("^[^=]+=", "", kv)), sub("=.*$", "", kv))
+    con <- do.call(dbConnect, c(list(RPostgres::Postgres()), args))
+    chk("RPostgres: query round trip (server)", {
+      r <- dbGetQuery(con, "SELECT 1 + 1 AS two, 'zig'::text AS s, now() IS NOT NULL AS t")
+      r$two == 2 && r$s == "zig" && isTRUE(r$t)
+    })
+    chk("RPostgres: write and read a table, bytea and numeric", {
+      dbWriteTable(con, "zig_smoke", data.frame(x = c(1.5, 2.5), y = c("a", "b")), temporary = TRUE)
+      sum(dbReadTable(con, "zig_smoke")$x) == 4 &&
+        identical(dbGetQuery(con, "SELECT '\\x4f4b'::bytea AS b")$b[[1]], as.raw(c(0x4f, 0x4b)))
+    })
+    dbDisconnect(con)
+  }
+}
+
+# slice 2 text stack (D122): libpng, libjpeg, libtiff (its codecs), libwebp,
+# freetype, harfbuzz, fribidi
+# a smooth image: red rises left to right, green and blue flat (lossy
+# codecs blur sharp edges in chroma, so a striped image is no test)
+img <- array(0, c(16, 32, 3))
+img[, , 1] <- rep(seq(0, 1, length.out = 32), each = 16)
+img[, , 2] <- 0.25
+img[, , 3] <- 0.75
+if ("png" %in% pkgs) {
+  chk("png: write and read an RGB image", {
+    f <- tempfile(fileext = ".png"); png::writePNG(img, f)
+    max(abs(png::readPNG(f) - img)) < 1 / 255 + 1e-9
+  })
+}
+if ("jpeg" %in% pkgs) {
+  chk("jpeg: write and read (lossy, close)", {
+    f <- tempfile(fileext = ".jpg"); jpeg::writeJPEG(img, f, quality = 0.95)
+    r <- jpeg::readJPEG(f)
+    identical(dim(r), dim(img)) && mean(abs(r - img)) < 0.02
+  })
+}
+if ("tiff" %in% pkgs) {
+  for (cmp in c("LZW", "deflate", "none")) local({
+    cmp <- cmp
+    chk(sprintf("tiff: write and read (%s)", cmp), {
+      f <- tempfile(fileext = ".tif"); tiff::writeTIFF(img, f, compression = cmp)
+      max(abs(tiff::readTIFF(f) - img)) < 1 / 255 + 1e-9
+    })
+  })
+  chk("tiff: write and read (JPEG, close)", {
+    f <- tempfile(fileext = ".tif"); tiff::writeTIFF(img, f, compression = "JPEG")
+    mean(abs(tiff::readTIFF(f) - img)) < 0.03
+  })
+}
+if ("webp" %in% pkgs) {
+  chk("webp: write and read (lossy, close)", {
+    a <- array(1, c(16, 32, 4)); a[, , 1:3] <- img
+    f <- tempfile(fileext = ".webp"); webp::write_webp(a, f, quality = 100)
+    r <- webp::read_webp(f)
+    identical(dim(r), c(16L, 32L, 4L)) && mean(abs(r[, , 1:3] - img)) < 0.03
+  })
+}
+if ("systemfonts" %in% pkgs) {
+  chk("systemfonts: system fonts found (freetype)", {
+    nrow(systemfonts::system_fonts()) > 0 && file.exists(systemfonts::match_fonts("sans")$path)
+  })
+}
+if ("textshaping" %in% pkgs) {
+  chk("textshaping: shape Latin text (harfbuzz)", {
+    s <- textshaping::shape_text("Hello world")$shape
+    nrow(s) == 11 && all(diff(s$x_offset) >= 0) && max(s$x_offset) > 0
+  })
+  chk("textshaping: right-to-left Hebrew (fribidi)", {
+    s <- textshaping::shape_text("\u05e9\u05dc\u05d5\u05dd abc")$shape
+    nrow(s) == 8 && all(s$index > 0)
+  })
+}
+if ("ragg" %in% pkgs) {
+  draw <- function() { plot(1:10, main = "zig-libs"); text(5, 5, "Hello \u05e9\u05dc\u05d5\u05dd", cex = 2) }
+  chk("ragg: agg_png with text (freetype, libpng)", {
+    f <- tempfile(fileext = ".png"); ragg::agg_png(f, 300, 200); draw(); dev.off()
+    # reading it back needs png (in the default list); without it, its size
+    if (requireNamespace("png", quietly = TRUE)) {
+      r <- png::readPNG(f); identical(dim(r)[1:2], c(200L, 300L)) && min(r[, , 1:3]) < 0.5
+    } else file.size(f) > 1000
+  })
+  chk("ragg: agg_tiff and agg_jpeg write files (libtiff, libjpeg)", {
+    f1 <- tempfile(fileext = ".tif"); ragg::agg_tiff(f1, 300, 200, compression = "lzw"); draw(); dev.off()
+    f2 <- tempfile(fileext = ".jpg"); ragg::agg_jpeg(f2, 300, 200); draw(); dev.off()
+    file.size(f1) > 1000 && file.size(f2) > 1000
+  })
+  chk("ragg: agg_webp writes a file (libwebp)", {
+    f <- tempfile(fileext = ".webp"); ragg::agg_webp(f, 300, 200); draw(); dev.off()
+    file.size(f) > 100
+  })
+}
+
+# slice 2 libxml2 (D125 B): zig-libxml2 with zig-libiconv, zlib and lzma
+if ("xml2" %in% pkgs) {
+  chk("xml2: parse and XPath (libxml2)", {
+    d <- xml2::read_xml("<a><b n='1'>x</b><b n='2'>y</b></a>")
+    identical(xml2::xml_text(xml2::xml_find_all(d, "//b[@n='2']")), "y")
+  })
+  chk("xml2: ISO-8859-1 document (built-in encoding)", {
+    raw <- c(charToRaw("<?xml version='1.0' encoding='ISO-8859-1'?><a>caf"), as.raw(0xe9), charToRaw("</a>"))
+    identical(xml2::xml_text(xml2::read_xml(raw)), "caf\u00e9")
+  })
+  chk("xml2: Shift_JIS document (iconv)", {
+    raw <- c(charToRaw("<?xml version='1.0' encoding='Shift_JIS'?><a>"), as.raw(c(0x93, 0xfa, 0x96, 0x7b)), charToRaw("</a>"))
+    identical(xml2::xml_text(xml2::read_xml(raw)), "\u65e5\u672c")
+  })
+  chk("xml2: gzip-compressed file (zlib)", {
+    f <- tempfile(fileext = ".xml.gz"); con <- gzfile(f, "w"); writeLines("<a><b>gz</b></a>", con); close(con)
+    identical(xml2::xml_text(xml2::read_xml(f)), "gz")
+  })
+}
+
+# slice 2 data stack (D126 B, D127 C): zig-hdf5 with zlib and szip (libaec)
+if ("hdf5r" %in% pkgs) {
+  suppressPackageStartupMessages(library(hdf5r))
+  m <- matrix(as.integer(seq_len(2400) %% 97), 40, 60)
+  chk("hdf5r: HDF5 1.12 library", {
+    v <- numeric_version(paste(h5version(verbose = FALSE), collapse = "."))
+    v >= "1.12" && v < "1.13"
+  })
+  chk("hdf5r: chunked deflate dataset round trip (zlib)", {
+    f <- tempfile(fileext = ".h5"); h <- H5File$new(f, mode = "w")
+    h$create_dataset("d", m, chunk_dims = c(10, 10), gzip_level = 6); h$close_all()
+    h <- H5File$new(f, mode = "r"); r <- h[["d"]][, ]; h$close_all(); identical(r, m)
+  })
+  chk("hdf5r: szip dataset round trip (libaec)", {
+    # hdf5r 1.3.16's H5P set_szip() calls R_H5Pset_szip with one argument
+    # of three, so the C entry point directly: options_mask
+    # H5_SZIP_NN_OPTION_MASK (32), 16 pixels per block
+    f <- tempfile(fileext = ".h5"); h <- H5File$new(f, mode = "w")
+    sp <- H5P_DATASET_CREATE$new(); sp$set_chunk(c(10, 10))
+    stopifnot(.Call("R_H5Pset_szip", sp$id, 32L, 16L, PACKAGE = "hdf5r")$return_val >= 0)
+    h$create_dataset("s", m, dataset_create_pl = sp); h$close_all()
+    h <- H5File$new(f, mode = "r"); r <- h[["s"]][, ]; h$close_all(); identical(r, m)
+  })
+}
+
+# zig-netcdf (netCDF-4 through zig-hdf5, classic formats); DAP needs a
+# server, so it is checked by hand (slice2 PLAN.md S2-F34)
+if ("ncdf4" %in% pkgs) {
+  chk("ncdf4: netCDF-4 compressed variable round trip (hdf5)", {
+    f <- tempfile(fileext = ".nc")
+    x <- ncdf4::ncdim_def("x", "m", 1:30); y <- ncdf4::ncdim_def("y", "m", 1:20)
+    v <- ncdf4::ncvar_def("t", "K", list(x, y), -999, prec = "double", compression = 6)
+    nc <- ncdf4::nc_create(f, v, force_v4 = TRUE)
+    m <- outer(1:30, 1:20, function(i, j) i * 0.5 + j)
+    ncdf4::ncvar_put(nc, v, m); ncdf4::ncatt_put(nc, 0, "title", "zig-libs"); ncdf4::nc_close(nc)
+    nc <- ncdf4::nc_open(f); r <- ncdf4::ncvar_get(nc, "t"); a <- ncdf4::ncatt_get(nc, 0, "title")$value
+    fmt <- nc$format; ncdf4::nc_close(nc)
+    isTRUE(all.equal(r, m)) && identical(a, "zig-libs") && fmt == "NC_FORMAT_NETCDF4"
+  })
+}
+if ("RNetCDF" %in% pkgs) {
+  for (fmt in c("classic", "data64", "netcdf4")) local({
+    fmt <- fmt
+    chk(sprintf("RNetCDF: %s file round trip", fmt), {
+      f <- tempfile(fileext = ".nc"); nc <- RNetCDF::create.nc(f, format = fmt)
+      RNetCDF::dim.def.nc(nc, "n", 50)
+      RNetCDF::var.def.nc(nc, "v", if (fmt == "classic") "NC_INT" else "NC_INT64", "n")
+      x <- if (fmt == "classic") 1:50 else seq(1, 50) * 1e10
+      RNetCDF::var.put.nc(nc, "v", x); RNetCDF::close.nc(nc)
+      nc <- RNetCDF::open.nc(f); r <- RNetCDF::var.get.nc(nc, "v"); RNetCDF::close.nc(nc)
+      isTRUE(all.equal(as.numeric(r), as.numeric(x)))
+    })
   })
 }
 

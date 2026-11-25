@@ -27,6 +27,12 @@
 //!   PKG_CONFIG     pkg-config from the build env, else false (no
 //!                  pkg-config; never the build machine's, D97)
 //!   CONFIG_SITE    /dev/null (no site defaults from the build machine)
+//!   FC F77         no: none of these libraries builds Fortran, but a
+//!                  configure that probes for it (udunits' AC_PROG_FC)
+//!                  finds the build machine's gfortran; libtool then sets
+//!                  up a Fortran tag on its MSVC branch and names the
+//!                  archive lib<n>.lib. libtool skips the tag only for an
+//!                  empty FC/F77 or "no" (not "false"; slice2 PLAN.md S2-F24)
 //!   lt_cv_prog_gnu_ld  yes: the toolchain links through zig (lld, "compatible
 //!                  with GNU linkers"). libtool asks whether $LD is GNU ld;
 //!                  with the failing LD stub it answers no and takes its MSVC
@@ -113,6 +119,8 @@ pub fn fences(
         .{ .name = "MANIFEST_TOOL", .value = "false" },
         .{ .name = "PKG_CONFIG", .value = pkg_config },
         .{ .name = "CONFIG_SITE", .value = "/dev/null" },
+        .{ .name = "FC", .value = "no" },
+        .{ .name = "F77", .value = "no" },
         .{ .name = "lt_cv_prog_gnu_ld", .value = "yes" },
     };
     for (all) |f| {
@@ -231,6 +239,12 @@ test "fences" {
     try std.testing.expectEqualStrings("/z/zig cc", f1[0].value);
     try std.testing.expectEqualStrings("x86_64-w64-mingw32-nm", f1[1].value);
     try std.testing.expectEqualStrings("x86_64-w64-mingw32-as", f1[3].value);
+    var fc = false;
+    for (f1) |f| if (mem.eql(u8, f.name, "FC")) {
+        try std.testing.expectEqualStrings("no", f.value);
+        fc = true;
+    };
+    try std.testing.expect(fc);
     const f2 = try fences(a, t, "zig", &env, {}, Ctx.nm);
     try std.testing.expectEqualStrings("/bp/bin/llvm-nm", f2[1].value);
 }

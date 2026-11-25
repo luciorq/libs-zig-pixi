@@ -1,0 +1,120 @@
+# zig-libpq: PostgreSQL's client library, static only, for Windows (win-64,
+# win-arm64), cross-built on linux with zig-toolchain through PostgreSQL's
+# own meson build (D1; slice2 D119), on zig-openssl, with LDAP (wldap32)
+# as CRAN's Rtools45 build: RPostgres takes the pkg-config libpq only when
+# its libs name ldap32 (slice2 S2-F26). Installed under the private
+# sub-prefix Library/zig-libs/<zig triple>/ (D2): lib/libpq.a with
+# lib/libpgcommon.a and lib/libpgport.a (libpq.a needs both),
+# include/libpq-fe.h and the client headers, lib/pkgconfig/libpq.pc (meson's,
+# closed and relocatable), licenses/libpq/.
+context:
+  # Rtools45 build 6768 (slice2 S2-F1), variants.yaml
+  version: ${{ libpq_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-libpq
+  version: ${{ version }}
+
+source:
+  # The git tag, not the release tarball: PostgreSQL 16's tarball ships
+  # the bison/flex/perl outputs, and its meson build refuses a source tree
+  # with them ("Non-clean source code directory detected", S2-F26). The
+  # libpq, common and port sources are the tarball's (compared).
+  - url: https://github.com/postgres/postgres/archive/refs/tags/REL_${{ version | replace(".", "_") }}.tar.gz
+    sha256: 2cffb237019c02da8c11c7c3d3a85a58687bfdd46d1b654c63f58b3ccc517ca7
+    # Rtools45's own c.h patch for its clang (aarch64) UCRT builds: plain
+    # setjmp for sigsetjmp (slice2 S2-F27, D121)
+    patches:
+      - 0001-use-mingw-setjmp-on-ucrt.patch
+  # the package test (tests/pkgtest.zig, tests/smoke/libpq.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # meson and ninja; bison, flex and perl generate the parsers and the
+    # headers the git tag does not carry; exact: in the hash
+    # (variants.yaml). pkgconf finds zig-openssl for meson (the cross
+    # file's pkg-config; PKG_CONFIG_LIBDIR is the host's zig-libs).
+    - meson ==${{ meson }}
+    - ninja ==${{ ninja }}
+    - bison ==${{ bison }}
+    - flex ==${{ flex }}
+    - perl ==${{ perl }}
+    - python
+    - pkgconf
+  host:
+    - zig-openssl
+  run_exports:
+    weak:
+      - ${{ pin_subpackage("zig-libpq", upper_bound="x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libpq.a
+          - ${{ sub }}/lib/libpgcommon.a
+          - ${{ sub }}/lib/libpgport.a
+          - ${{ sub }}/include/libpq-fe.h
+          - ${{ sub }}/include/postgres_ext.h
+          - ${{ sub }}/include/pg_config_ext.h
+          - ${{ sub }}/include/libpq/libpq-fs.h
+          - ${{ sub }}/lib/pkgconfig/libpq.pc
+          - ${{ sub }}/licenses/libpq/COPYRIGHT
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library, no programs, no server headers
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.exe"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/include/postgresql/server/**
+  # tests/pkgtest.zig (its header says what it checks): libpq.pc names
+  # -lwldap32 (RPostgres' check) and pulls zig-openssl's libssl/libcrypto
+  # through Requires; the relocated .pc resolves to existing paths, no
+  # absolute prefix in it, no build path in the archives, no C symbol in
+  # two archives of the closure, no dllexport directive, and
+  # tests/smoke/libpq.c links (and runs, on Windows of the same arch:
+  # version, OpenSSL in the build, conninfo parsing, a refused connection).
+  # One plain command for bash (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -lwldap32 --require -lpgcommon --require -lssl ${{ zt }} libpq zig-libs-tests/smoke/libpq.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/libpq.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://www.postgresql.org/
+  license: PostgreSQL
+  license_file: COPYRIGHT
+  summary: PostgreSQL client library (libpq), static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/postgres/postgres

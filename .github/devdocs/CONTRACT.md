@@ -18,8 +18,20 @@ they differ from this summary.
   and win-arm64: zig-zlib, zig-sqlite, zig-expat, zig-openssl,
   zig-abseil, zig-onetbb, zig-geos, zig-proj, zig-gdal; from slice 2
   batch 1 (slice2/PLAN.md) also zig-gmp (with gmpxx), zig-mpfr,
-  zig-glpk. `zig-toolchain` (linux-64) is the build tool, not for
-  consumers.
+  zig-glpk; from batch 2 zig-nlopt, zig-udunits2; from batch 3 zig-gsl
+  (libgsl.a and GSL's own CBLAS, libgslcblas.a); zig-libpq (libpq.a with
+  libpgcommon.a and libpgport.a, LDAP and OpenSSL as Rtools45's); the
+  text stack (D122): zig-libpng, zig-libjpeg (IJG 9f), zig-libwebp,
+  zig-libtiff, zig-freetype, zig-fribidi, zig-harfbuzz, and the
+  compression libraries zig-zstd, zig-xz, zig-libdeflate, zig-brotli,
+  zig-bzip2; zig-libxml2 (libxml-2.0.pc, with zlib, lzma and iconv)
+  and zig-libiconv (iconv.pc: the name Rtools45 ships) (D125); the data
+  stack (D126 B, D127 C): zig-hdf5 1.12.1 (hdf5.pc, hdf5_hl.pc, szip),
+  zig-netcdf 4.9.2 (netCDF-4, HDF4, DAP2/DAP4, szip, NCZarr file store),
+  zig-libcurl 8.18.0 (Schannel, Windows' CA store), zig-hdf4 4.2.15
+  (df.pc, mfhdf.pc), zig-libaec 1.0.6 (szip.pc, libaec.pc).
+  `zig-toolchain`
+  (linux-64) is the build tool, not for consumers.
 - Only published builds are part of the contract. A consumer never
   depends on a libs-zig-pixi CI artifact (r-zig-pixi PR #52 removed
   `--libs-channel`).
@@ -52,7 +64,12 @@ they differ from this summary.
   GLPK's `DllMain` as its entry point, and one that defines its own gets
   a duplicate-symbol error. No other zig-* archive defines `DllMain`.
 - `.pc` files the upstream build does not install are written by the
-  recipe (zig-glpk's `glpk.pc`, which upstream lacks).
+  recipe (zig-glpk's `glpk.pc`, zig-udunits2's `udunits2.pc`; upstream
+  has neither).
+- zig-udunits2 ships its XML database in `share/udunits/`; the library's
+  default path is the relative `share\udunits\udunits2.xml` (no prefix);
+  consumers pass a path or set `UDUNITS2_XML_PATH` (R's units ships its
+  own copy).
 
 ## 3. pkg-config files
 
@@ -102,10 +119,12 @@ Written by `zig-toolchain close-pc` (toolchain/src/closepc.zig):
 Owned by r-zig-pixi; listed so the producer knows what a change can
 break. Windows only; unix never looks for zig-libs.
 
-This section describes r-zig-pixi main. The first r-zig build that carries
-it is 12 (unpublished as of 2026-11-23); build 11 on universe (4.6.2
-`hc365614_11`) predates it and never looks in zig-libs (slice2/PLAN.md
-S2-F13).
+The first r-zig build that carries this section is 12, published on
+universe 2026-11-24 (4.6.2; win-64 r-zig-slim `hb04b5bb_12`, win-arm64
+`he73fba8_12`; r-zig-pixi release run 45381914199). Build 11 predates it
+and never looks in zig-libs (slice2/PLAN.md S2-F13). Consumers pin
+`r-zig-slim = { version = "4.6.2", build = "*_12" }` or later, with
+universe listed before conda-forge.
 
 - rzig (`zigbuild/tools/rzig/environment.zig`), environment order: R's
   own env's `zig-libs/<triple>` (when it exists), R's env, the
@@ -146,8 +165,12 @@ a `.pc` names is in `lib/`.
   (from slice 2 on, DESIGN.md 9.1 item 4) R packages built from source
   against the new packages with r-zig from universe: the `r-consumer`
   job (build.yml; slice2/PLAN.md D113), `tests/r/install.R` then
-  `tests/r/smoke.R` (sf, terra, gdalraster, s2, gmp, Rmpfr, igraph; sf on
-  win-64 only until zig-udunits2). The publish job needs it.
+  `tests/r/smoke.R` (sf, terra, gdalraster, s2, gmp, Rmpfr, igraph,
+  nloptr, units, gsl, RPostgres, png, jpeg, tiff, webp, systemfonts,
+  textshaping, ragg, xml2, hdf5r, ncdf4, RNetCDF, on both arches; RPostgres' queries
+  against a throwaway PostgreSQL server on win-64), with r-zig-slim and r-zig-toolchain
+  pinned to build 12 (D116). The publish job needs it, and it fails the
+  run.
 - r-zig-pixi verifies the published builds in its stress suite after it
   updates its lock, and reports anything that breaks this contract to
   libs-zig-pixi.

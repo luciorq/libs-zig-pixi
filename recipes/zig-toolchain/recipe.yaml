@@ -57,13 +57,19 @@ tests:
       - printf '#include <stdio.h>\nint main(void){puts("hello");return 0;}\n' > hello.c
       - printf '#include <iostream>\nint main(){std::cout<<"hello\\n";}\n' > hello.cpp
       - printf '1 VERSIONINFO\nFILEVERSION 1,0,0,0\nBEGIN\nEND\n' > r.rc
-      - x86_64-w64-mingw32-cc -O2 hello.c -o hello-x86_64.exe
+      # the linker options zig rejects are dropped (PostgreSQL's MinGW flags,
+      # slice2 D120)
+      - x86_64-w64-mingw32-cc -O2 hello.c -o hello-x86_64.exe -Wl,--allow-multiple-definition -Wl,--disable-auto-import -Wl,-z,muldefs
       - aarch64-w64-mingw32-cc -O2 -march=armv8-a+crc+crypto hello.c -o hello-aarch64.exe
       - x86_64-w64-mingw32-c++ -O2 hello.cpp -o hellopp-x86_64.exe
       - aarch64-w64-mingw32-c++ -O2 hello.cpp -o hellopp-aarch64.exe
       - x86_64-w64-mingw32-windres -O coff -i r.rc -o r-x86_64.o
       - aarch64-w64-mingw32-windres -O coff -i r.rc -o r-aarch64.o
+      # meson's windows module types a windres by "GNU windres" (D120)
+      - x86_64-w64-mingw32-windres --version | grep -q 'GNU windres'
       - aarch64-w64-mingw32-cc -c hello.c -o h.o && aarch64-w64-mingw32-ar rcs libh.a h.o && aarch64-w64-mingw32-ranlib libh.a
+      # -c without -o names the object hello.o, as MinGW gcc (zig: hello.obj)
+      - x86_64-w64-mingw32-cc -c hello.c && test -f hello.o && test ! -e hello.obj
       - zig-toolchain pe-machine hello-x86_64.exe hellopp-x86_64.exe r-x86_64.o | tee m64.txt
       - zig-toolchain pe-machine hello-aarch64.exe hellopp-aarch64.exe r-aarch64.o | tee marm.txt
       - test "$(grep -c 'x86_64$' m64.txt)" = 3
@@ -85,10 +91,10 @@ tests:
       # configure (slice2 D104): the cross arguments come first, the
       # caller's after them; the fences are set, a caller's value is kept
       - |
-        printf '#!/bin/sh\necho "args: $*"\necho "CC_FOR_BUILD=$CC_FOR_BUILD|LD=$LD|AS=$AS|NM=$NM|PKG_CONFIG=$PKG_CONFIG|CONFIG_SITE=$CONFIG_SITE"\n' > fake-configure && chmod +x fake-configure
+        printf '#!/bin/sh\necho "args: $*"\necho "CC_FOR_BUILD=$CC_FOR_BUILD|LD=$LD|AS=$AS|NM=$NM|PKG_CONFIG=$PKG_CONFIG|CONFIG_SITE=$CONFIG_SITE|FC=$FC|F77=$F77"\n' > fake-configure && chmod +x fake-configure
         ZIG_TOOLCHAIN_TARGET=aarch64-windows-gnu PKG_CONFIG=mine zig-toolchain configure ./fake-configure --enable-cxx | tee conf.txt
         grep -q -- 'args: --build=x86_64-pc-linux-gnu --host=aarch64-w64-mingw32 --prefix=/zig-libs/aarch64-windows-gnu --libdir=/zig-libs/aarch64-windows-gnu/lib --disable-shared --enable-static --enable-cxx$' conf.txt
-        grep -q 'CC_FOR_BUILD=[^|]*zig cc|LD=aarch64-w64-mingw32-ld|AS=aarch64-w64-mingw32-as|NM=.*|PKG_CONFIG=mine|CONFIG_SITE=/dev/null$' conf.txt
+        grep -q 'CC_FOR_BUILD=[^|]*zig cc|LD=aarch64-w64-mingw32-ld|AS=aarch64-w64-mingw32-as|NM=.*|PKG_CONFIG=mine|CONFIG_SITE=/dev/null|FC=no|F77=no$' conf.txt
         if env -u ZIG_TOOLCHAIN_TARGET zig-toolchain configure ./fake-configure; then exit 1; fi
       # check-alignment (D17): one build number per package across subdirs;
       # zig-toolchain only in linux-64 is outside --expect

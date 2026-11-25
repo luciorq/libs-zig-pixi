@@ -1,0 +1,97 @@
+# zig-zstd: Zstandard (libzstd), static only, for Windows (win-64,
+# win-arm64), cross-built on linux with zig-toolchain through zstd's own
+# CMake build (build/cmake). Installed under the private sub-prefix
+# Library/zig-libs/<zig triple>/ (D2): lib/libzstd.a (multithreaded, with
+# Windows threads), include/{zstd,zdict,zstd_errors}.h,
+# lib/pkgconfig/libzstd.pc (closed, relocatable), lib/cmake/zstd/,
+# licenses/zstd/.
+context:
+  version: ${{ zstd_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-zstd
+  version: ${{ version }}
+
+source:
+  - url: https://github.com/facebook/zstd/releases/download/v${{ version }}/zstd-${{ version }}.tar.gz
+    sha256: eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3
+  # the package test (tests/pkgtest.zig, tests/smoke/zstd.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # exact: puts cmake and ninja in the hash (variants.yaml)
+    - cmake ==${{ cmake }}
+    - ninja ==${{ ninja }}
+  run_exports:
+    weak:
+      - ${{ pin_subpackage("zig-zstd", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libzstd.a
+          - ${{ sub }}/include/zstd.h
+          - ${{ sub }}/include/zdict.h
+          - ${{ sub }}/include/zstd_errors.h
+          - ${{ sub }}/lib/pkgconfig/libzstd.pc
+          - ${{ sub }}/licenses/zstd/LICENSE
+          - ${{ sub }}/licenses/zstd/COPYING
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library (zstd_static.lib), no programs, no man pages
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.exe"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/share/**
+  # tests/pkgtest.zig (its header says what it checks): the relocated .pc
+  # resolves to existing paths, no absolute prefix in it, no build path in
+  # libzstd.a, no dllexport directive, and tests/smoke/zstd.c links (and
+  # runs, on Windows of the same arch: a compress/decompress round trip,
+  # the header against the library version). One plain command for bash
+  # (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport ${{ zt }} libzstd zig-libs-tests/smoke/zstd.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/zstd.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://facebook.github.io/zstd/
+  license: BSD-3-Clause OR GPL-2.0-only
+  license_file:
+    - LICENSE
+    - COPYING
+  summary: Zstandard compression library, static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/facebook/zstd

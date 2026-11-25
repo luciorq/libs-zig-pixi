@@ -50,6 +50,15 @@ m4:
   - "1.4.21"
 llvm_tools:
   - "23.1.6"
+# meson recipes (zig-libpq, slice2 D119): meson, and the parser and header
+# generators PostgreSQL's git tag needs. Versions as resolved 2026-11-24
+# (slice2 PLAN.md S2-F27).
+meson:
+  - "1.12.1"
+bison:
+  - "3.8.2"
+flex:
+  - "2.6.4"
 
 # Upstream versions: Rtools45 build 6768 (D9). Each recipe reads its own
 # key (zlib_version, ...) in its context, so the version is only here; the
@@ -80,3 +89,56 @@ mpfr_version:
   - "4.2.2"
 glpk_version:
   - "5.0"
+nlopt_version:
+  - "2.10.0"
+udunits2_version:
+  - "2.2.28"
+gsl_version:
+  - "2.7.1"
+libpq_version:
+  - "16.10"
+# text stack (slice2 D103, D122 B: with the compression libraries
+# libtiff and freetype use in Rtools45, without LERC and glib)
+zstd_version:
+  - "1.5.7"
+xz_version:
+  - "5.8.2"
+libdeflate_version:
+  - "1.25"
+brotli_version:
+  - "1.2.0"
+# no bzip2.pc in the tree; MXE's bzip2.mk (the last release)
+bzip2_version:
+  - "1.0.8"
+libpng_version:
+  - "1.6.54"
+# IJG libjpeg 9f (the tree's libjpeg.pc says 9.6.0), not libjpeg-turbo
+libjpeg_version:
+  - "9f"
+libwebp_version:
+  - "1.6.0"
+libtiff_version:
+  - "4.7.1"
+freetype_version:
+  - "2.14.1"
+fribidi_version:
+  - "1.0.16"
+harfbuzz_version:
+  - "12.3.0"
+# libxml2 with zlib, lzma and GNU libiconv, as Rtools45 (slice2 D125 B)
+libiconv_version:
+  - "1.17"
+libxml2_version:
+  - "2.12.10"
+# data stack (slice2 D126 B): Rtools45's versions; libcurl on Schannel
+hdf5_version:
+  - "1.12.1"
+libcurl_version:
+  - "8.18.0"
+netcdf_version:
+  - "4.9.2"
+# szip and HDF4 for hdf5/netcdf, as Rtools45 (slice2 D127 C)
+libaec_version:
+  - "1.0.6"
+hdf4_version:
+  - "4.2.15"

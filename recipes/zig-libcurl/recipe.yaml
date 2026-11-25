@@ -1,0 +1,111 @@
+# zig-libcurl: libcurl, static only, for Windows (win-64, win-arm64),
+# cross-built on linux with zig-toolchain through curl's own CMake build
+# (D1), with Rtools45's TLS choice (slice2 D126 B): Schannel and Windows'
+# certificate store (no OpenSSL, no CA bundle), zlib, zstd and brotli from
+# their zig-* packages in the host env, IDN through Windows (WinIDN) and
+# LDAP through wldap32. No libssh2, nghttp2, libpsl or libidn2; no curl
+# tool, no docs. Installed under the private sub-prefix
+# Library/zig-libs/<zig triple>/ (D2): lib/libcurl.a, include/curl/,
+# lib/pkgconfig/libcurl.pc (closed, relocatable, -DCURL_STATICLIB in
+# Cflags, Requires: zlib libbrotlidec libbrotlicommon libzstd),
+# licenses/libcurl/.
+context:
+  version: ${{ libcurl_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-libcurl
+  version: ${{ version }}
+
+source:
+  # sha256 the same for curl.se's tarball and the GitHub release asset
+  - url: https://curl.se/download/curl-${{ version }}.tar.xz
+    sha256: 40df79166e74aa20149365e11ee4c798a46ad57c34e4f68fd13100e2c9a91946
+  # the package test (tests/pkgtest.zig, tests/smoke/libcurl.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # exact: puts cmake and ninja in the hash (variants.yaml)
+    - cmake ==${{ cmake }}
+    - ninja ==${{ ninja }}
+  host:
+    - zig-zlib
+    - zig-zstd
+    - zig-brotli
+  run_exports:
+    weak:
+      # libcurl keeps its ABI within a major version (soname 4 since 7.16)
+      - ${{ pin_subpackage("zig-libcurl", upper_bound="x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libcurl.a
+          - ${{ sub }}/include/curl/curl.h
+          - ${{ sub }}/include/curl/curlver.h
+          - ${{ sub }}/include/curl/easy.h
+          - ${{ sub }}/include/curl/multi.h
+          - ${{ sub }}/include/curl/urlapi.h
+          - ${{ sub }}/lib/pkgconfig/libcurl.pc
+          - ${{ sub }}/licenses/libcurl/COPYING
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library; no curl tool, no curl-config or wcurl script, no man
+        # pages, no CMake config
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.exe"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/share/**
+          - ${{ sub }}/lib/cmake/**
+  # tests/pkgtest.zig (its header says what it checks): libcurl.pc pulls
+  # zlib.pc, libzstd.pc and libbrotlidec.pc through Requires (--require
+  # -l<n> for each); the relocated .pc resolves to existing paths, no
+  # absolute prefix in it, no build path in the archives, no C symbol
+  # defined in two archives of the closure, no dllexport directive, and
+  # tests/smoke/libcurl.c links (and runs, on Windows of the same arch:
+  # the version info's TLS backend and features, the escape and URL API,
+  # and a file:// download into memory; no network). One plain command for
+  # bash (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -lz --require -lzstd --require -lbrotlidec ${{ zt }} libcurl zig-libs-tests/smoke/libcurl.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/libcurl.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://curl.se/
+  license: curl
+  license_file: COPYING
+  summary: libcurl (URL transfer library, Schannel TLS), static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/curl/curl

@@ -57,6 +57,97 @@ fn takesRawValue(x: []const u8) bool {
     return false;
 }
 
+/// Linker options zig's frontend rejects ("unsupported linker arg") that
+/// change nothing in a link that succeeds, dropped in every spelling (in a
+/// `-Wl,` list, after `-Xlinker`):
+///   --allow-multiple-definition, -z muldefs: as rzig (r-zig-pixi
+///     fix-stress-round1 S8, linker_args.zig); PostgreSQL's MinGW template
+///   --disable-auto-import: a safety flag (the link fails where MinGW
+///     auto-import would be needed; lld's MinGW driver auto-imports by
+///     default). PostgreSQL's MinGW template (slice2 PLAN.md S2-F26, D120)
+fn droppedLinkerOpt(x: []const u8) bool {
+    const names = [_][]const u8{ "--allow-multiple-definition", "-allow-multiple-definition", "-zmuldefs", "--disable-auto-import", "-disable-auto-import" };
+    for (names) |n| if (mem.eql(u8, x, n)) return true;
+    return false;
+}
+
+/// A `-Wl,` list without the dropped options (an empty list: null).
+fn filterWl(a: mem.Allocator, list: []const u8) !?[]const u8 {
+    var kept: std.ArrayList([]const u8) = .empty;
+    var items: std.ArrayList([]const u8) = .empty;
+    var it = mem.splitScalar(u8, list, ',');
+    while (it.next()) |x| try items.append(a, x);
+    var i: usize = 0;
+    while (i < items.items.len) : (i += 1) {
+        const x = items.items[i];
+        if (droppedLinkerOpt(x)) continue;
+        if (mem.eql(u8, x, "-z") and i + 1 < items.items.len and mem.eql(u8, items.items[i + 1], "muldefs")) {
+            i += 1;
+            continue;
+        }
+        try kept.append(a, x);
+    }
+    if (kept.items.len == 0) return null;
+    if (kept.items.len == items.items.len) return list;
+    return try mem.join(a, ",", kept.items);
+}
+
+/// Options that read the next argument as their value, so that it is no
+/// input file (the C family's subset of rzig's cmdline.zig takes_value,
+/// r-zig-pixi origin/main).
+const takes_value = std.StaticStringMap(void).initComptime(.{
+    .{"-Xlinker"},  .{"-Xclang"},          .{"-Xpreprocessor"}, .{"-Xassembler"}, .{"-x"},        .{"-MF"},
+    .{"-MT"},       .{"-MQ"},              .{"-MJ"},            .{"-include"},    .{"-imacros"},  .{"-include-pch"},
+    .{"-isystem"},  .{"-idirafter"},       .{"-iquote"},        .{"-iprefix"},    .{"-isysroot"}, .{"-I"},
+    .{"-L"},        .{"-D"},               .{"-U"},             .{"-l"},          .{"-B"},        .{"-target"},
+    .{"-z"},        .{"-u"},               .{"-T"},             .{"-e"},          .{"-mllvm"},    .{"--param"},
+    .{"--sysroot"}, .{"-dependency-file"},
+});
+
+/// A C-family or assembler source, by its extension (clang's).
+fn isSource(x: []const u8) bool {
+    if (x.len == 0 or x[0] == '-') return false;
+    const dot = mem.findScalarLast(u8, x, '.') orelse return false;
+    if (mem.findAny(u8, x[dot..], "/\\") != null) return false;
+    const exts = [_][]const u8{ "c", "i", "cc", "cp", "cpp", "cxx", "c++", "C", "CC", "CPP", "CXX", "ii", "m", "mm", "s", "S", "sx" };
+    for (exts) |e| if (mem.eql(u8, x[dot + 1 ..], e)) return true;
+    return false;
+}
+
+/// MinGW gcc's object name for `-c` without an output (rzig's windows.zig
+/// objSuffix, r-zig-pixi fix-stress-round1 S7): with -c, no -S, -E, -M or
+/// -MM, no `-o <file>` or `-o<file>`, and one source among the inputs,
+/// `-o <stem>.o` in the current directory. zig names it `<stem>.obj` for a
+/// Windows target, which Makefiles that compile `$(CC) -c x.c` and then
+/// archive x.o (bzip2's) and configure's OBJEXT (PostgreSQL's LIBOBJS
+/// against `%.o` rules) do not expect (slice2 PLAN.md S2-F26, S2-F29).
+fn objOutput(a: mem.Allocator, caller: []const []const u8) !?[2][]const u8 {
+    var compile = false;
+    var src: ?[]const u8 = null;
+    var i: usize = 0;
+    while (i < caller.len) : (i += 1) {
+        const x = caller[i];
+        if (mem.eql(u8, x, "-c")) {
+            compile = true;
+        } else if (mem.startsWith(u8, x, "-o")) {
+            return null; // `-o <file>` or `-o<file>`
+        } else if (takes_value.has(x)) {
+            i += 1;
+        } else {
+            for ([_][]const u8{ "-S", "-E", "-M", "-MM" }) |f| if (mem.eql(u8, x, f)) return null;
+            if (isSource(x)) {
+                if (src != null) return null;
+                src = x;
+            }
+        }
+    }
+    if (!compile) return null;
+    const path = src orelse return null;
+    const base = if (mem.findLastAny(u8, path, "/\\")) |k| path[k + 1 ..] else path;
+    const stem = base[0 .. mem.findScalarLast(u8, base, '.') orelse base.len];
+    return .{ "-o", try std.fmt.allocPrint(a, "{s}.o", .{stem}) };
+}
+
 /// `zig cc|c++ -target <t> <defaults> <caller's, rewritten>` after zig's path.
 pub fn compilerArgs(a: mem.Allocator, lang: []const u8, t: target.Target, caller: []const []const u8) ![]const []const u8 {
     var out: std.ArrayList([]const u8) = .empty;
@@ -66,6 +157,21 @@ pub fn compilerArgs(a: mem.Allocator, lang: []const u8, t: target.Target, caller
     var i: usize = 0;
     while (i < caller.len) : (i += 1) {
         const x = caller[i];
+        if (mem.eql(u8, x, "-Xlinker") and i + 1 < caller.len) {
+            const n = caller[i + 1];
+            if (droppedLinkerOpt(n)) {
+                i += 1;
+                continue;
+            }
+            if (mem.eql(u8, n, "-z") and i + 3 < caller.len and mem.eql(u8, caller[i + 2], "-Xlinker") and mem.eql(u8, caller[i + 3], "muldefs")) {
+                i += 3;
+                continue;
+            }
+        }
+        if (flagValue(x, "-Wl,")) |list| {
+            if (try filterWl(a, list)) |l| try out.append(a, if (l.ptr == list.ptr) x else try mem.concat(a, u8, &.{ "-Wl,", l }));
+            continue;
+        }
         if (takesRawValue(x) and i + 1 < caller.len) {
             try out.appendSlice(a, &.{ x, caller[i + 1] });
             i += 1;
@@ -82,6 +188,7 @@ pub fn compilerArgs(a: mem.Allocator, lang: []const u8, t: target.Target, caller
             try out.append(a, (try clangCpu(a, t.arch, "-mcpu=", v)) orelse x);
         } else try out.append(a, x);
     }
+    if (try objOutput(a, caller)) |o| try out.appendSlice(a, &o);
     return out.items;
 }
 
@@ -148,7 +255,7 @@ test "cc: target and defaults first, the caller's after" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const t = target.fromGnu("x86_64-w64-mingw32").?;
-    try expectArgs(&.{ "cc", "-target", "x86_64-windows-gnu", "-mcpu=baseline", "-fno-sanitize=undefined", "-Wno-date-time", "-Xclang", "-object-file-name=zig-libs.obj", "-O2", "-c", "a.c" }, try compilerArgs(arena.allocator(), "cc", t, &.{ "-O2", "-c", "a.c" }));
+    try expectArgs(&.{ "cc", "-target", "x86_64-windows-gnu", "-mcpu=baseline", "-fno-sanitize=undefined", "-Wno-date-time", "-Xclang", "-object-file-name=zig-libs.obj", "-O2", "-c", "a.c", "-o", "a.o" }, try compilerArgs(arena.allocator(), "cc", t, &.{ "-O2", "-c", "a.c" }));
 }
 
 test "aarch64: -march=armv8-a+<any features> is -mcpu=generic+v8a+<features>" {
@@ -176,5 +283,34 @@ test "-march/-mcpu/-mtune=native are dropped; .s inputs get no -object-file-name
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const t = target.fromGnu("x86_64-w64-mingw32").?;
-    try expectArgs(&.{ "cc", "-target", "x86_64-windows-gnu", "-mcpu=baseline", "-fno-sanitize=undefined", "-Wno-date-time", "-c", "a.s" }, try compilerArgs(arena.allocator(), "cc", t, &.{ "-march=native", "-mcpu=native", "-mtune=native", "-c", "a.s" }));
+    try expectArgs(&.{ "cc", "-target", "x86_64-windows-gnu", "-mcpu=baseline", "-fno-sanitize=undefined", "-Wno-date-time", "-c", "a.s", "-o", "a.o" }, try compilerArgs(arena.allocator(), "cc", t, &.{ "-march=native", "-mcpu=native", "-mtune=native", "-c", "a.s" }));
+}
+
+test "linker options zig rejects are dropped, in every spelling (D120)" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const t = target.fromGnu("x86_64-w64-mingw32").?;
+    const pre = [_][]const u8{ "cc", "-target", "x86_64-windows-gnu", "-mcpu=baseline", "-fno-sanitize=undefined", "-Wno-date-time", "-Xclang", "-object-file-name=zig-libs.obj" };
+    // PostgreSQL's src/template/win32 and meson.build
+    try expectArgs(&(pre ++ [_][]const u8{ "-o", "a.exe", "a.c" }), try compilerArgs(arena.allocator(), "cc", t, &.{ "-o", "a.exe", "-Wl,--allow-multiple-definition", "-Wl,--disable-auto-import", "a.c" }));
+    try expectArgs(&(pre ++ [_][]const u8{ "-Wl,-z,now", "-Wl,--as-needed" }), try compilerArgs(arena.allocator(), "cc", t, &.{ "-Wl,-allow-multiple-definition,-z,muldefs,-z,now,-zmuldefs", "-Wl,--as-needed" }));
+    try expectArgs(&(pre ++ [_][]const u8{ "-Xlinker", "--as-needed", "a.o" }), try compilerArgs(arena.allocator(), "cc", t, &.{ "-Xlinker", "--disable-auto-import", "-Xlinker", "-z", "-Xlinker", "muldefs", "-Xlinker", "--as-needed", "a.o" }));
+}
+
+test "-c without an output: gcc's <stem>.o (S2-F29)" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const t = target.fromGnu("x86_64-w64-mingw32").?;
+    const pre = [_][]const u8{ "cc", "-target", "x86_64-windows-gnu", "-mcpu=baseline", "-fno-sanitize=undefined", "-Wno-date-time", "-Xclang", "-object-file-name=zig-libs.obj" };
+    try expectArgs(&(pre ++ [_][]const u8{ "-O2", "-c", "blocksort.c", "-o", "blocksort.o" }), try compilerArgs(a, "cc", t, &.{ "-O2", "-c", "blocksort.c" }));
+    try expectArgs(&(pre ++ [_][]const u8{ "-c", "src\\sub/a.cpp", "-I", "x.c", "-include", "b.h", "-o", "a.o" }), try compilerArgs(a, "cc", t, &.{ "-c", "src\\sub/a.cpp", "-I", "x.c", "-include", "b.h" }));
+    // an output named, several sources, no -c, -E, -S, -M, -MM: unchanged
+    const same = [_][]const []const u8{
+        &.{ "-c", "a.c", "-o", "b.o" }, &.{ "-c", "a.c", "-ob.o" }, &.{ "-c", "a.c", "b.c" },
+        &.{ "a.c", "-o", "a" },         &.{ "-E", "-c", "a.c" },    &.{ "-M", "-c", "a.c" },
+        &.{ "-MM", "-c", "a.c" },       &.{ "-S", "-c", "a.c" },    &.{ "-c", "-" },
+        &.{ "-c", "a.o" },
+    };
+    for (same) |args| try expectArgs(try mem.concat(a, []const u8, &.{ &pre, args }), try compilerArgs(a, "cc", t, args));
 }

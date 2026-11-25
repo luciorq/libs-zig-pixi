@@ -1,0 +1,119 @@
+# zig-hdf5: HDF5 1.12.1 (the C library and the high-level library
+# hdf5_hl), static only, for Windows (win-64, win-arm64), cross-built on
+# linux with zig-toolchain through HDF5's own CMake build (D1), on zig-zlib
+# (the deflate filter) and zig-libaec (the szip filter; slice2 D127 C). 1.12.x as Rtools45
+# (hdf5r wants the 1_12 API). H5detect's type layout comes pre-generated
+# from Windows (build.sh says from where and how it is checked). Installed
+# under the private sub-prefix Library/zig-libs/<zig triple>/ (D2):
+# lib/libhdf5.a, lib/libhdf5_hl.a, include/ (hdf5.h, H5pubconf.h, hdf5_hl.h,
+# ...), lib/pkgconfig/{hdf5,hdf5_hl}.pc (Rtools45's names; closed,
+# relocatable, hdf5 Requires: zlib, hdf5_hl Requires: hdf5),
+# licenses/hdf5/.
+context:
+  version: ${{ hdf5_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-hdf5
+  version: ${{ version }}
+
+source:
+  # sha256 as in MXE's and Rtools45's hdf5.mk
+  - url: https://support.hdfgroup.org/ftp/HDF5/releases/hdf5-${{ (version | split("."))[:2] | join(".") }}/hdf5-${{ version }}/src/hdf5-${{ version }}.tar.bz2
+    sha256: aaf9f532b3eda83d3d3adc9f8b40a9b763152218fa45349c3bc77502ca1f8f1c
+    patches:
+      # no build-time H5make_libsettings run in a cross build, and
+      # HDF5_USE_PREGEN's dependency paths (the patch says why)
+      - 0001-cross-build-without-running-h5make-libsettings.patch
+  # the package test (tests/pkgtest.zig, tests/smoke/hdf5.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # exact: puts cmake and ninja in the hash (variants.yaml)
+    - cmake ==${{ cmake }}
+    - ninja ==${{ ninja }}
+  host:
+    - zig-zlib
+    - zig-libaec
+  run_exports:
+    weak:
+      # HDF5's minor releases change the ABI (1.12 -> 1.14)
+      - ${{ pin_subpackage("zig-hdf5", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libhdf5.a
+          - ${{ sub }}/lib/libhdf5_hl.a
+          - ${{ sub }}/include/hdf5.h
+          - ${{ sub }}/include/H5pubconf.h
+          - ${{ sub }}/include/hdf5_hl.h
+          - ${{ sub }}/include/H5LTpublic.h
+          - ${{ sub }}/lib/pkgconfig/hdf5.pc
+          - ${{ sub }}/lib/pkgconfig/hdf5_hl.pc
+          - ${{ sub }}/licenses/hdf5/COPYING
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library; no tools, no h5cc, no C++/Fortran libraries, no CMake
+        # config, no libhdf5.settings, no examples or docs
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.exe"
+          - "**/libhdf5_cpp*"
+          - "**/libhdf5_fortran*"
+          - "**/libhdf5.settings"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/share/**
+          - ${{ sub }}/cmake/**
+          - ${{ sub }}/lib/cmake/**
+  # tests/pkgtest.zig (its header says what it checks): hdf5_hl.pc pulls
+  # hdf5.pc, zig-zlib's zlib.pc and zig-libaec's szip.pc through Requires
+  # (--require -lhdf5, -lz, -lsz); the relocated .pc resolves to existing paths, no absolute prefix
+  # in it, no build path in the archives, no C symbol defined in two
+  # archives of the closure (no zlib copy in libhdf5.a), no dllexport
+  # directive, and tests/smoke/hdf5.c links (and runs, on Windows of the
+  # same arch: a chunked deflate dataset with an attribute and an H5LT
+  # dataset written, reopened and read back). One plain command for bash
+  # (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -lhdf5 --require -lz --require -lsz ${{ zt }} hdf5_hl zig-libs-tests/smoke/hdf5.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/hdf5.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://www.hdfgroup.org/solutions/hdf5/
+  license: BSD-3-Clause
+  license_file: COPYING
+  summary: HDF5 (Hierarchical Data Format 5) C and high-level libraries, static libraries for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/HDFGroup/hdf5

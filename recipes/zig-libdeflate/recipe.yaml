@@ -1,0 +1,92 @@
+# zig-libdeflate: libdeflate (DEFLATE, zlib and gzip), static only, for
+# Windows (win-64, win-arm64), cross-built on linux with zig-toolchain
+# through libdeflate's own CMake build. Installed under the private
+# sub-prefix Library/zig-libs/<zig triple>/ (D2): lib/libdeflate.a,
+# include/libdeflate.h, lib/pkgconfig/libdeflate.pc (closed,
+# relocatable), lib/cmake/libdeflate/, licenses/libdeflate/.
+context:
+  version: ${{ libdeflate_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-libdeflate
+  version: ${{ version }}
+
+source:
+  - url: https://github.com/ebiggers/libdeflate/archive/refs/tags/v${{ version }}.tar.gz
+    sha256: d11473c1ad4c57d874695e8026865e38b47116bbcb872bfc622ec8f37a86017d
+  # the package test (tests/pkgtest.zig, tests/smoke/libdeflate.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # exact: puts cmake and ninja in the hash (variants.yaml)
+    - cmake ==${{ cmake }}
+    - ninja ==${{ ninja }}
+  run_exports:
+    weak:
+      - ${{ pin_subpackage("zig-libdeflate", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libdeflate.a
+          - ${{ sub }}/include/libdeflate.h
+          - ${{ sub }}/lib/pkgconfig/libdeflate.pc
+          - ${{ sub }}/licenses/libdeflate/COPYING
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library (deflatestatic.lib), no libdeflate-gzip program
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.exe"
+          - "**/libdeflatestatic.a"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/share/**
+  # tests/pkgtest.zig (its header says what it checks): the relocated .pc
+  # resolves to existing paths, no absolute prefix in it, no build path in
+  # libdeflate.a, no dllexport directive, and tests/smoke/libdeflate.c
+  # links (and runs, on Windows of the same arch: deflate, zlib and gzip
+  # round trips, CRC-32 and Adler-32 check values). One plain command for
+  # bash (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport ${{ zt }} libdeflate zig-libs-tests/smoke/libdeflate.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/libdeflate.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://github.com/ebiggers/libdeflate
+  license: MIT
+  license_file: COPYING
+  summary: libdeflate DEFLATE/zlib/gzip compression library, static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/ebiggers/libdeflate

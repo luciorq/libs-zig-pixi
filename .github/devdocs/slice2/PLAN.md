@@ -69,6 +69,18 @@ per-library fallback, text below).
 | D113 | How the r-consumer job (D102) tests R packages | A own harness: a pixi env of this run's channel, universe, conda-forge with r-zig-slim, r-zig-toolchain, the zig-* libraries and conda-forge sysdeps; `tests/r/install.R` (source installs) then `tests/r/smoke.R`; per-arch package lists (sf skips win-arm64 until zig-udunits2, batch 2); default leg first; B r-zig-pixi's stress.R pinned to a commit; C no r-consumer for batch 1 | A | no CI dependency on the consumer repo; the stress suite stays r-zig-pixi's (CONTRACT.md 7) | user ("continue with recommended") |
 | D114 | r-consumer while universe's r-zig (build 11) predates the zig-libs search (S2-F13; r-zig build 12 unpublished, no date: the r-zig-pixi user batches the release) | A report-only (`continue-on-error`) plus the r-zig-pixi session's emulation of build 12 in the job (PKG_CONFIG_PATH, R_MAKEVARS_USER -I/-L, R_TOOLS_SOFT); flip to required and drop the emulation when build 12 is on universe; B report-only, no emulation (no signal until build 12); C hold the batch-1 publish until build 12 | A | signal now (S2-F14: it works on kappa); nothing blocks on the other repo's release; the r-zig-pixi session's first preference is report-only, emulation its option 2; it asked not to build r-zig from its main | default, user may revisit |
 | D115 | CI build time (S2-F23): reuse what has not changed | A a shared zig global cache per job, kept between runs (activation honours `LIBS_ZIG_CACHE`, passed by each recipe's `env.get`; pkgtest and the test command use zig's per-user cache), in this PR while zig-toolchain 0.2.0 and the build-1 bumps are unpublished; then, in its own PR, build only what universe lacks (`--skip-existing=all`, the D96 recipe check moved to the start); B the skip only; C the cache only; D prototype both first | A | the cache needs a toolchain and test-file change that is free before the batch-1 publish; archives stay byte-identical (S2-F23) | user ("Apply the recommended", 2026-11-24) |
+| D116 | r-consumer once r-zig build 12 is on universe (D114's exit condition; r-zig-pixi session message 2026-11-24: build 12 published, release run 45381914199, pre-merge stress 45305358893 ok for sf, terra, gdalraster, lwgeom, s2 on both Windows arches) | A drop the D114 emulation (the appended Rcmd_environ lines, the user Makevars) and `continue-on-error`, pin r-zig-slim and r-zig-toolchain to `4.6.2 *_12`; B keep it report-only one more batch | A, dated 2026-11-24, in the batch-2 PR (#8) so its run is the first with the job required | D114 said to drop both with build 12; the pin keeps an older r-zig from being picked, where the job would fail for a reason not in this repo | mine (D114 exit), on the r-zig-pixi session's request |
+| D117 | Fence the host gfortran that udunits' `AC_PROG_FC` finds on the GitHub runner (S2-F24) | A `FC=no F77=no` on zig-udunits2's configure line only, the helper fence later; B the same two fences in `zig-toolchain configure` now; C helper fence after a batch-1 publish (12 libraries to build 2) | B, dated 2026-11-24 (first A; B once D118 removed the batch-1 publish: zig-toolchain 0.2.0 is unpublished, so the fence changes no version and no build string) | one fence for every autotools library (hdf5 and netcdf come with optional Fortran parts); UDUNITS-2 has no Fortran API ("No Fortran or Perl API", udunits2.texi; lib/ builds C only), so the fence drops nothing; gmp, mpfr, glpk, gsl probe no Fortran | mine, after the user's D118 |
+| D118 | Release cadence for the rest of slice 2 (replaces D106A) | A publish per batch (D106); B one PR for all remaining slice-2 work, one publish at the end | B, dated 2026-11-24 | user: "We don't need to publish anything now. Let's fold all ongoing work on a single PR with all builds we have in our ongoing list." Batch 1 (merged, PR #7) stays unpublished; PR #8 (branch feat-slice2-batch2) carries batch 2 and the D103 rest (gsl, libpq, the text stack, libxml2, the data stack); one handover to r-zig-pixi after that publish | user |
+| D119 | libpq 16.10 after S2-F26 (no clean path) | A PostgreSQL's own meson build plus two zig-toolchain fixes (D120); B autotools plus wrapper changes (drop the flags, `.o` object names) and libpq.a archived outside upstream's rules; C defer libpq to after the text stack; D allyourcodebase/libpq (18.4, own OpenSSL, no LDAP: a fork) | A, dated 2026-11-24 | upstream's own build, a real static libpq.a with no Makefile change; the toolchain fixes help every meson library (harfbuzz, fribidi) | user |
+| D120 | zig-toolchain for meson and PostgreSQL's MinGW flags (S2-F26) | A the cc/c++ wrapper drops `--allow-multiple-definition`, `-z muldefs` and `--disable-auto-import` in every spelling (`-Wl,` lists, `-Xlinker`), and `<triple>-windres --version` prints "GNU windres compatible: zig-toolchain <v> (zig rc)" (meson's windows module types a windres by "GNU windres"); B per-recipe workarounds | A, dated 2026-11-24 | rzig drops the first two (r-zig-pixi fix-stress-round1 S8); the r-zig-pixi session (2026-11-24): --disable-auto-import is a safety flag, lld's MinGW driver auto-imports by default, so dropping it never changes a link that succeeds; rzig adds the same drop and the same windres words in build 13. zig-toolchain 0.2.0 is unpublished: no version change | mine, r-zig-pixi agreed |
+| D121 | What zig-libpq changes beyond options (S2-F27) | A Rtools45's own c.h patch (sigsetjmp is setjmp on UCRT; zig's MinGW defines _UCRT on both arches) and the activation's -ffile-prefix-map left out of CFLAGS (config_info.c compiles CFLAGS in as strings); B a compile flag for x86_64 (-Wno-error=incompatible-pointer-types) and -march=armv8-a+crc for aarch64 instead of the patch | A, dated 2026-11-24 (default, vetoable) | B does not build on aarch64: pg_get_line.c's sigsetjmp needs __builtin_setjmp, which clang has not for aarch64; the patch is the one CRAN's own clang (aarch64) build carries, four lines, unchanged | mine |
+| D122 | Text stack scope: Rtools45 builds libtiff with zstd, xz/lzma, LERC, libdeflate (and jpeg, webp, zlib), freetype with brotli, bzip2, harfbuzz (and png, zlib), harfbuzz with glib (intl, iconv, pcre2) | A minimal: only zig-* deps (libtiff zlib/jpeg/webp; freetype zlib/png; harfbuzz freetype); B A plus zig-zstd, zig-xz, zig-libdeflate, zig-brotli, zig-bzip2: Rtools45's features except LERC and glib; C everything Rtools45 has, glib and a freetype/harfbuzz two-pass build included | B, dated 2026-11-24 | the compression libraries also serve the data stack (hdf5, netcdf, curl); glib is a large build for features no R package here uses | user |
+| D123 | zig names a `-c` output without `-o` `<stem>.obj` for Windows (S2-F29) | A zig-toolchain's cc/c++ wrapper appends `-o <stem>.o`, as MinGW gcc and rzig (r-zig-pixi fix-stress-round1 S7, objSuffix); B per-recipe overrides (zig-bzip2's `CC="$CC -o $@"`) | A, dated 2026-11-24 | the same rule as r-zig's; bzip2's override goes, and PostgreSQL's autotools OBJEXT problem (S2-F26) would not have arisen. Autotools builds now see OBJEXT=o; zig-toolchain 0.2.0 is unpublished, so no version change | mine |
+| D124 | CRAN jpeg needs LOCAL_SOFT, which r-zig build 12 leaves empty (S2-F30) | A the r-consumer install step sets LOCAL_SOFT to the env's zig-libs tree and the finding goes to r-zig-pixi (whose Rcmd_environ could default it, as it does R_TOOLS_SOFT); B drop jpeg from r-consumer until r-zig decides; C nothing in CI, a CONTRACT note only | A, dated 2026-11-24 (default, vetoable) | jpeg is the only package of the 18 that reads LOCAL_SOFT; one env line in one step, removed when r-zig sets it; the libraries are not at fault. The r-zig-pixi session (2026-11-24): LOCAL_SOFT was left empty only to keep the Rtools45 sysroot away from zig (LOCAL_CPPFLAGS -I on every compile), which does not apply to zig-libs; r-zig build 13 (r-zig-pixi PR #57) defaults it to R_ZIG_LIBS and turns `-I<zig-libs>/include` into -idirafter; the workaround stands until build 13 is published | mine, r-zig-pixi agreed |
+| D125 | libxml2 2.12.10 scope (Rtools45: zlib, lzma, GNU libiconv) | A zlib and lzma only (built-in UTF-8/16, Latin-1, ASCII); B A plus a new zig-libiconv 1.17 (LGPL), Rtools45 parity; C ICU for encodings | B, dated 2026-11-24 | documents in any encoding parse (xml2, igraph); libiconv is a small autotools build; ICU is a large C++ build no R package here needs | user |
+| D126 | Data stack scope (D103's last item): Rtools45 has hdf5 1.12.1, netcdf 4.9.2, libcurl 8.18.0 | A parity, libcurl on zig-openssl; B parity, libcurl on Schannel (Windows TLS and CA store); C B plus a new zig-libaec (szip); D hdf5 and netcdf only, no libcurl (no DAP) | B, dated 2026-11-24 | no CA bundle to ship or point to; Windows' own TLS. Correction after the choice (the menu said Rtools45 has no libaec): its netcdf.pc links libsz.a (libaec's szip) and HDF4 (libmfhdf.a, libdf.a), only without a .pc; its libcurl has OpenSSL and Schannel, libssh2, nghttp2, libidn2, libpsl (probe-rtools/closedpc). B leaves out szip, HDF4, SFTP/SCP, HTTP/2, libpsl; IDN through Windows (WinIDN). Put to the user again for szip | user |
+| D127 | szip and HDF4 (corrects D126's menu: Rtools45's netcdf links libsz.a and HDF4) | A a new zig-libaec (szip) for hdf5 and netcdf; B D126 B as chosen, no szip; C szip and a new zig-hdf4, netcdf reading HDF4 files: full Rtools45 parity | C, dated 2026-11-24 | CRAN parity for netcdf; szip-compressed and HDF4 (MODIS-era) data read as on CRAN | user |
 
 D104 in the user's words: "As soon as cross-compiling a library with
 autotools gets tricky, stop and switch that library to another path
@@ -446,9 +458,10 @@ fills it; PR runs read main's).
   `lib<n>.a` only, no collisions), and duplicate-symbol checks across the
   closure (pkgtest) get larger.
 
-## Handover to r-zig-pixi (per batch, CONTRACT.md 8)
+## Handover to r-zig-pixi (CONTRACT.md 8)
 
-After each publish: names, subdirs and build strings; contract changes;
+One handover for all of slice 2, after its single publish (D118; the
+per-batch drafts below are merged into it then). After the publish: names, subdirs and build strings; contract changes;
 then r-zig-pixi adds the packages to its Windows stress env, updates
 `packages.tsv` sysdeps and expects (`windows-aarch64=` keys), relocks,
 runs stress on both Windows arches, and removes a library from
@@ -485,3 +498,390 @@ place of conda-forge's gmp/mpfr/glpk on Windows (igraph's win-64
 arches with an r-zig that has the zig-libs search (build 12 or a same-run
 build); drop gmp, mpfr, glpk from `rtools_has` once no win-arm64 row
 resolves them from the tree.
+
+## Batch 2: nlopt, udunits2 (branch feat-slice2-batch2)
+
+Started 2026-11-24 while PR #7 (batch 1) waits for CI, in its own worktree
+(`/data/gamma/luciorq/workspaces/temp/r-zig-pixi/wt/libs-slice2-b2`,
+branched from feat-slice2 f616781). Versions as the Rtools45 tree
+(S2-F1: nlopt 2.10.0) and r-windows/rtools-packages (udunits 2.2.28).
+
+**S2-F19 V. nlopt 2.10.0 cross-builds with its own CMake, no patch
+(2026-11-24).** Source: GitHub's tag archive (the v2.10.0 release has no
+asset), sha256 `506f83a9...237be1`. Rtools45 builds it with CMake and
+`-DNLOPT_CXX=ON` (r-windows/rtools-packages mingw-w64-nlopt PKGBUILD);
+MXE's nlopt.mk has the same options. With the toolchain file: configure,
+build and install pass on both arches ("Looking for isinf/qsort_r/syscall
+- not found" only). libnlopt.a carries the C++ algorithms: llvm-nm -u
+gives 70 `std::__1` references (pkgtest: 227 std::__1, 0 __cxx11), while
+upstream's nlopt.pc names only `-lm` in Libs.private, so build.sh adds
+`-lc++` (close-pc --libs); the C smoke program (Nelder-Mead and StoGO)
+links with the .pc's flags alone. NLoptConfig.cmake set
+NLOPT_INCLUDE_DIRS/NLOPT_LIBRARY_DIRS to the absolute host prefix (the
+imported target file is relative); build.sh rewrites them to
+`${CMAKE_CURRENT_LIST_DIR}/../../..` and fails if the prefix remains. The
+slice-1 packages' lib/cmake and lib/pkgconfig files name no host prefix
+(grep over the 12 extracted win-64 packages: 0 files). Licence
+`LGPL-2.1-or-later AND MIT` (COPYING: MIT core, luksan LGPL-2.1+).
+Recipe build: win-arm64 `zig-nlopt-2.10.0-zig_7d742f2_0`, win-64
+`zig_b870d38_0`; pkgtest all passed.
+
+**S2-F20 V. udunits 2.2.28 cross-builds through the helper, no patch, no
+cache answer (2026-11-24).** The URL Rtools and conda-forge name
+(`artifacts.unidata.ucar.edu/.../udunits-2.2.28.tar.gz`) answers 404;
+`downloads.unidata.ucar.edu/udunits/2.2.28/udunits-2.2.28.tar.gz` has the
+same sha256 (`590baec8...d579e`, the PKGBUILD's and conda-forge's).
+Rtools builds it with plain configure. With `zig-toolchain configure`,
+zig-expat (`-DXML_STATIC`, as its expat.pc) both arches configure, build
+and install (lib, include, share/udunits XML, a udunits2 program removed).
+The compiled-in default database path is the relative Windows
+`share\udunits\udunits2.xml`, not a prefix. Upstream installs no .pc and
+Rtools has none; R's units on Windows links `-ludunits2 -lexpat` directly
+(Makevars.ucrt, units 1.0-1) and ships its own XML; build.sh writes a
+udunits2.pc (Requires: expat). Licence `UCAR`. Recipe build: pkgtest all
+passed on both subdirs (smoke: an XML unit system read through expat,
+2.5 km = 2500 m).
+
+**S2-F22 V. nloptr, units and sf build from source on Windows against
+batch 2 (kappa win-64, 2026-11-24).** Env: local channel with this
+branch's 14 win-64 packages (zig-nlopt, zig-udunits2 and S2-F15's 12),
+then universe (r-zig `_11`), then conda-forge (libxml2-devel, cmake; no
+conda-forge udunits2); build 12's Rcmd_environ lines (D114), the file
+copied first (`fsutil hardlink list`: one link, so the cache was not
+touched). install.R: nloptr 2.2.1, units 1.0.1, sf 1.1.3 ok. smoke.R
+nloptr, units, sf, s2: 18/18 PASS (StoGO included). Link lines: nloptr
+`-L<zig-libs>/lib -lnlopt`, units `-L<zig-libs>/lib -ludunits2 -lexpat`.
+nloptr names no `-lc++` and links anyway (its DLL is linked as C++).
+kappa scratch removed.
+
+### Batch 2 handover (draft; confirmed after the publish run)
+
+| Package | Version | win-64 | win-arm64 |
+|---|---|---|---|
+| zig-nlopt (new) | 2.10.0 | `zig_b870d38_0` | `zig_7d742f2_0` |
+| zig-udunits2 (new) | 2.2.28 | `zig_88de710_0` | `zig_53d4c50_0` |
+
+check-alignment `--expect win-64,win-arm64` against universe: "build
+alignment OK", "published comparison OK: 29 new" (batch 1 and 2,
+unpublished). Contract changes (CONTRACT.md): section 1 names them;
+section 2: udunits2.pc written by the recipe, `share/udunits/` and the
+relative default database path; section 7: r-consumer runs sf on both
+arches. No other package changes (no toolchain change, so no rebuilds).
+
+What r-zig-pixi does: add zig-nlopt and zig-udunits2 to the Windows
+stress env; `packages.tsv`: nloptr's `nlopt@windows` becomes
+`zig-nlopt@windows`, units (and sf, lwgeom through it) take
+`zig-udunits2@windows`; lme4 follows nloptr; drop nlopt and udunits2 from
+`rtools_has` once no win-arm64 row resolves them from the tree.
+
+**S2-F24 V. udunits' configure finds the runner's gfortran; libtool
+then names the archive `.lib` (2026-11-24).** PR #8 run 45382544600:
+cross win-64 and win-arm64 fail in zig-udunits2's package content test
+(`lib/libudunits2.a` missing, `lib/libudunits2.lib` present). Its log:
+`checking for gfortran... gfortran`, `WARNING: using cross tools not
+prefixed with host triplet`, `whether we are using the GNU Fortran
+compiler... no`. configure.ac line 95 is `AC_PROG_FC`; the GitHub
+ubuntu image has `/usr/bin/gfortran` (gamma has none, so the local
+builds of S2-F20 gave `.a`), and the build script's PATH keeps
+`/usr/bin` (M5-F27). libtool configures an FC tag for it, takes the
+non-GNU (MSVC) branch and sets `libext=lib`. Reproduced on gamma with a
+stand-in `gfortran` (`exec /bin/false`) on PATH: `libext=lib`.
+`FC=false F77=false` still gives `lib` (libtool skips the tag only for
+an empty FC or `no`); `FC=no F77=no` gives `libext=a`, a libtool
+config block and config.h identical to the no-gfortran build, and
+`libudunits2.a`. The recipe build with the fence (win-64, gamma) passes
+its tests. gmp, mpfr, glpk and gsl 2.7.1 configure scripts have no
+FC/F77 probe. Fix D117.
+
+**S2-F21 V. gsl 2.7.1 prototype for batch 3 (manual, 2026-11-24, not in
+this batch).** sha256 `dcb0fbd4...eeb34b` (ftpmirror.gnu.org and
+ftp.gnu.org identical). r-windows/rtools-packages builds gsl with plain
+configure (its PKGBUILD says 2.7; the tree has 2.7.1, S2-F1). Through
+`zig-toolchain configure`, both arches configure, build and install with
+no patch and no cache answer: libgsl.a, libgslcblas.a (GSL's own CBLAS,
+not MKL: the win-64 fail-upstream row in r-zig-pixi is conda-forge's
+MKL gslcblas.lib), 266 headers, gsl.pc (`-lgsl -lgslcblas -lm`, neutral
+prefix for close-pc); also gsl-config, two programs, man/info pages (to
+remove). Configure: "IEEE arithmetic interface type... unknown", so
+`gsl_ieee_env_setup` has no FP-mode support on MinGW (I: as a native
+MinGW build; R's gsl package does not call it).
+
+**S2-F25 V. zig-gsl 2.7.1 (batch 3, folded into PR #8 by D118;
+2026-11-24).** Recipe recipes/zig-gsl: plain `zig-toolchain configure`
+(no option, no cache answer, no patch: no D104 trigger), upstream gsl.pc
+closed by close-pc (`-lgsl -lgslcblas -lm`; `-lm` is zig's MinGW libc,
+pkgtest: "a system library"), bin/ and share/ removed (gsl-config is a
+script with the prefix compiled in). Local builds on gamma with the
+FC/F77 fence (D117): win-64 `zig_3d4d675_0`, win-arm64 `zig_67fdb26_0`,
+recipe tests pass (pkgtest: 2 archives, no build path, 0 symbols in both,
+no -export: directive; smoke links, PE 0x8664 / 0xaa64). kappa win-64:
+tests/smoke/gsl.c (J0(5), gamma(5.5), dgemm through gslcblas, qagi
+integral, rkf45 ODE, the mt19937 first draw, version) prints OK; an env
+of r-zig-slim `hb04b5bb_12` and r-zig-toolchain `h3946dc3_12` (universe,
+no emulation) plus this zig-gsl installs CRAN gsl 2.1-9 from source (its
+Makevars.win is `-L$(LIB_GSL)/lib -lgsl -lgslcblas`; kappa has no
+Rtools45 tree and no fallback, so -lgsl resolved in zig-libs) and
+tests/r/smoke.R gsl passes 3/3. r-consumer lists gsl on both arches.
+
+**S2-F26 V. libpq 16.10: neither upstream build goes through cleanly;
+D104's early fallback applies (2026-11-24, prototypes on gamma,
+win-64).** Source postgresql-16.10.tar.bz2, sha256 `de8485f4...92b42`
+(the same as Rtools45's MXE postgresql.mk). Rtools45 (MXE, Kalibera's
+toolchain_libs) builds it with autotools, `--with-openssl --with-ldap`,
+and two patches: configure.ac (autoconf version check; OpenSSL library
+names) and src/Makefile.shlib (on win32 upstream's `libpq.a` is the
+DLL's import library, `$(stlib): $(shlib) touch $@`; the patch makes a
+real static archive). RPostgres 1.4.10's Makevars.win takes
+`pkg-config --libs libpq` only when it contains `ldap32`, else it
+downloads its own libpq (tools/winlibs.R): the package needs LDAP on.
+Through `zig-toolchain configure` (with zig-openssl, `LIBS` = its .pc
+dependencies): (1) src/template/win32 adds `-Wl,--allow-multiple-definition`
+and `-Wl,--disable-auto-import`; zig rejects both ("unsupported linker
+arg"), so "the C compiler still works... no". rzig drops the first in
+every spelling (r-zig-pixi fix-stress-round1 S8, linker_args.zig); the
+second is in no r-zig-pixi record. With a throwaway wrapper dropping
+both, configure passes (`ldap_bind in -lwldap32... yes`), then (2) make
+stops: `No rule to make target 'preadv.obj'`: zig names `-c` outputs
+`.obj` for Windows targets, so configure sets OBJEXT=obj, which
+PostgreSQL's Makefiles (LIBOBJS against `%.o` rules) do not handle;
+`ac_cv_objext=o` breaks configure's own compile tests (conftest.obj
+left, "does not support C99"). (3) The static libpq.a needs the
+Makefile.shlib change (a D104 trigger) or an archive made outside
+upstream's rules. PostgreSQL's meson build (16.x ships both): the same
+two linker flags (meson.build 310-312), and perl, python, flex, bison
+required; with the dropping wrapper and `-Dsystem_tzdata=/dev/null`
+(else it wants a native zic), setup finds zig-openssl 3.6.0 and wldap32,
+then stops: "Could not determine type of Windows resource compiler"
+(src/bin/pgevent; the toolchain's `windres` wrapper does not print a
+version meson recognises; the toolchain's meson cross file was never
+used before). allyourcodebase/libpq (the zig port, PORTS.md): PostgreSQL
+18.4, links its own OpenSSL/LibreSSL dependency, no LDAP
+(`HAVE_LIBWLDAP32 = null`). No CMake port. Decision D119.
+
+**S2-F27 V. zig-libpq 16.10 through PostgreSQL's meson build (D119-D121;
+2026-11-24, gamma and kappa).** (1) meson on the release tarball stops:
+"Non-clean source code directory detected" (PostgreSQL 16 tarballs ship
+the bison/flex/perl outputs; 17 stopped shipping them). The git tag
+archive (github.com/postgres/postgres REL_16_10, sha256
+`2cffb237...c517ca7`) builds; its src/interfaces/libpq, src/common and
+src/port sources equal the tarball's (only the generated kwlist_d.h
+differs). bison 3.8.2, flex 2.6.4, perl, python, meson 1.12.1, ninja
+from conda-forge (pins in variants.yaml). (2) With D120's toolchain,
+`meson setup` passes (zig-openssl 3.6.0 by pkg-config, `Library wldap32
+found: YES`; `-Dsystem_tzdata=/dev/null`, else a native zic). (3)
+x86_64: pg_get_line.c fails, c.h's MinGW `sigsetjmp` is
+`__builtin_setjmp` on an `intptr_t[5]` (clang 16+: incompatible pointer
+types, an error); aarch64 also pg_crc32c_armv8_choose.c, and
+`-march=armv8-a+crc` (no runtime probe) still leaves pg_get_line.c:
+"__builtin_setjmp is not supported for the current target". Rtools45's
+MXE patch (postgresql-2-use-mingw-setjmp-on-ucrt.patch: setjmp when
+_UCRT) fixes both; zig defines `_UCRT` (`__MSVCRT_VERSION__ 0xE00`) for
+both targets. (4) libpgcommon.a held the build path: config_info.c's
+VAL_CFLAGS/VAL_LDFLAGS (src/common/meson.build) carry the activation's
+`-ffile-prefix-map=<SRC_DIR>=...`; meson compiles with relative paths,
+so the recipe drops that flag. (5) Only the targets libpq.a,
+libpgcommon.a, libpgport.a are built (`meson install` would build the
+server); the recipe installs upstream's client set (libpq-fe.h,
+libpq-events.h, postgres_ext.h, pg_config*.h, libpq/libpq-fs.h,
+postgresql/internal/) and meson's libpq.pc, closed: `Libs: -lpq
+-lsecur32 -pthread -lwldap32 -lws2_32 -lm -lpgport -lpgcommon`,
+`Requires: openssl`. Local builds: win-64 `zig_172a6d9_0`, win-arm64
+`zig_a8a682b_0`, recipe tests pass (6 archives in the closure, no build
+path, 0 duplicate symbols, no -export: directive). kappa win-64:
+tests/smoke/libpq.c prints `libpq 160010 (OpenSSL)` and a refused
+connection ("Connection refused (0x0000274D/10061)"). RPostgres 1.4.10
+takes this libpq ("using libpq from Rtools": its Makevars.win found
+ldap32 in `pkg-config --libs libpq`) and then needs boost headers
+(`boost/shared_ptr.hpp`): with a system libpq it leaves out its vendored
+boost and expects the toolchain tree's; conda-forge `libboost-headers`
+in the env supplies them (r-consumer sysdeps). With them (kappa win-64,
+r-zig-slim `hb04b5bb_12`, libboost-headers 1.92.0): RPostgres 1.4.10
+installs from source and tests/r/smoke.R RPostgres passes 4/4, two of
+them against a conda-forge PostgreSQL 16 server in a separate env (a
+query round trip; a table written and read, bytea and numeric). No
+postgres process left; the scratch directory removed.
+
+**S2-F28 V. The win-64 test step ran out of time (2026-11-24).** PR #8
+run 45418398647: "The action 'rattler-build test each package' has timed
+out after 45 minutes" on win-64, while abseil's smoke linked; every
+package tested before it passed (zlib to sqlite, gsl, nlopt). 15
+packages, and a cold zig cache (variants.yaml changed with gsl, so the
+key missed; main has not saved since). win-arm64, the alignment and both
+r-consumer jobs passed. Step limit 100, job 120 minutes.
+
+**S2-F29 V. `zig cc -c x.c` names its output x.obj (2026-11-24).** bzip2
+1.0.8's Makefile compiles `$(CC) $(CFLAGS) -c x.c` and archives x.o: "ar:
+error: blocksort.o: No such file or directory" (the bzip2 recipe's
+agent). zig names a `-c` output without `-o` `<stem>.obj` for a Windows
+target, MinGW gcc `<stem>.o`; the same made PostgreSQL's configure set
+OBJEXT=obj (S2-F26). rzig rewrites it (objSuffix, r-zig-pixi
+fix-stress-round1 S7). D123: zig-toolchain's flags.zig does the same
+(objOutput: with -c, no -S/-E/-M/-MM, no output named, one source among
+the inputs, `-o <stem>.o`); unit tests 33/33; zig-toolchain's recipe test
+checks `x86_64-w64-mingw32-cc -c hello.c` leaves hello.o and no
+hello.obj; zig-bzip2's override removed.
+
+**S2-F30 V. The text stack (D122 B): 12 packages, both arches, kappa
+win-64 (2026-11-24).** Recipes zig-zstd 1.5.7, zig-xz 5.8.2 (liblzma,
+`-DLZMA_API_STATIC` in its Cflags), zig-libdeflate 1.25, zig-brotli 1.2.0
+(three archives), zig-bzip2 1.0.8 (upstream Makefile, bzip2.pc written by
+the recipe), zig-libpng 1.6.54, zig-libjpeg 9f (IJG through the configure
+helper), zig-libwebp 1.6.0 (five archives), zig-libtiff 4.7.1 (CMake:
+zlib, libdeflate, jpeg, old-jpeg, lzma, zstd, webp; no LERC, JBIG or C++),
+zig-freetype 2.14.1 (CMake: zlib, png, bzip2, brotli; no harfbuzz),
+zig-fribidi 1.0.16 and zig-harfbuzz 12.3.0 (meson; freetype only, no C++
+runtime in its link: pkgtest `--forbid -lstdc++ --forbid -lc++`). A clean
+rebuild of all 28 libraries with D123's toolchain (gamma, fresh output and
+cache): both arches exit 0, 28/28 package tests pass on each. Build
+strings, win-64 / win-arm64: zstd `zig_7a25264_0` / `zig_55d5032_0`, xz
+`zig_ff32a5e_0` / `zig_6f3d017_0`, libdeflate `zig_77896ef_0` /
+`zig_6bb1c10_0`, brotli `zig_8d86e8c_0` / `zig_4dc7140_0`, bzip2
+`zig_d0671e6_0` / `zig_ca4b6c1_0`, libpng `zig_94b2c29_0` /
+`zig_5f3f133_0`, libjpeg `zig_818e618_0` / `zig_9aad480_0`, libwebp
+`zig_feab249_0` / `zig_54b5342_0`, libtiff `zig_73238b7_0` /
+`zig_71ac026_0`, freetype `zig_8b8bf55_0` / `zig_5a2a8ac_0`, fribidi
+`zig_5cc9b54_0` / `zig_b4e2bb1_0`, harfbuzz `zig_46191cb_0` /
+`zig_b4a567a_0`; the earlier packages keep their strings (gsl
+`zig_3d4d675_0` / `zig_67fdb26_0`, libpq `zig_172a6d9_0` /
+`zig_a8a682b_0`). kappa win-64: the 12 smoke programs and gsl's, linked
+on gamma with `pkgconf --static` against the packages, all exit 0. An env
+of r-zig-slim `hb04b5bb_12`, r-zig-toolchain `h3946dc3_12` and these
+packages installs CRAN png 0.1-9, tiff 0.1-12, webp 1.3.0, systemfonts
+1.3.4, textshaping 1.1.0, ragg 1.5.2 and gsl 2.1-9 from source with no
+change; each links from zig-libs (png `-lpng16 -lz`; tiff `-ltiff -lz
+-ldeflate -ljpeg -llzma -lzstd -lwebp -lsharpyuv`; textshaping
+`-lharfbuzz -lfreetype -lbz2 -lpng16 -lz -lbrotlidec -lbrotlicommon -lm
+-lfribidi`; ragg "using freetype2 libpng libtiff-4 libjpeg libwebpmux
+libwebp from Rtools"), none downloads. jpeg 0.1-11 does not: its
+configure.win looks only in `$(LOCAL_SOFT)/lib`; r-zig's Makeconf has
+`LOCAL_SOFT ?=` and its Rcmd_environ sets R_TOOLS_SOFT, not LOCAL_SOFT,
+so jpeg looks in /lib, tries rforge's binary tarball and fails ("gzip:
+Cannot exec"). With `LOCAL_SOFT=<env>/Library/zig-libs/x86_64-windows-gnu`
+it prints "found libjpeg in LOCAL_SOFT" and links `-ljpeg` from zig-libs.
+Decision D124; sent to the r-zig-pixi session. tests/r/smoke.R: the first
+image was a column-striped pattern (column-major fill), which lossy
+codecs blur (jpeg mean error 0.107); a smooth gradient gives 0.0028
+(jpeg) and 0.0036 (webp). With it, all 16 checks pass (gsl 3, png, jpeg,
+tiff 4, webp, systemfonts, textshaping 2, ragg 3). The scratch directory
+was removed afterwards.
+
+**S2-F31 V. zig-libiconv 1.17 and zig-libxml2 2.12.10 (D125 B;
+2026-11-24, gamma and kappa).** libiconv through the configure helper
+(`--disable-nls`), only libcharset and lib/ with their own install targets
+(no iconv program, po/ or man/); iconv.pc written by the recipe (the name
+Rtools45's tree ships; libiconv.a carries locale_charset, so `-liconv`
+alone links). Its resource object is skipped (`OBJECTS_RES_yes=`):
+windres-options --escape writes `-DPACKAGE_VERSION_STRING=\"1.17\"` for
+GNU windres, whose shell strips the backslashes; zig rc takes them as is
+("libiconv.rc:25:34: error: expected '<'}' or END>', got '\'"). It is
+iconv.dll's VERSIONINFO, never linked from an archive. Sent to the
+r-zig-pixi session (rzig's windres). libxml2 through the helper with
+`--with-zlib --with-lzma --with-iconv --without-icu --without-python`;
+configure silently turns an option off when its library is missing, so
+the build fails unless the Makefile has `WITH_ZLIB/LZMA/ICONV = 1`. Only
+libxml2.la, the headers and libxml-2.0.pc are installed (no xmllint,
+xmlcatalog, xml2-config, CMake config). libxml-2.0.pc: `Requires: zlib
+liblzma iconv` (iconv added: libxml/encoding.h includes <iconv.h> from
+include/), `Libs: -lxml2 -liconv -lm -lws2_32`, `Cflags:
+-I${includedir}/libxml2 -DLIBXML_STATIC`. Builds: libiconv win-64
+`zig_4bc333d_0`, win-arm64 `zig_ba8ed4a_0`; libxml2 `zig_5cd7389_0` /
+`zig_3753072_0`; recipe tests pass on all four (pkgtest: no build path, 0
+duplicate symbols, no -export: directive). kappa win-64:
+tests/smoke/libiconv.c (ISO-8859-1, SHIFT_JIS, EUC-JP to UTF-8, EILSEQ)
+and tests/smoke/libxml2.c (ISO-8859-1 and Shift_JIS documents, XPath,
+gzip and xz files) print OK. An env without conda-forge libxml2-devel
+(r-zig build 12, zig-libxml2, zig-glpk, zig-gmp): CRAN xml2 1.6.0 and
+igraph 2.3.4 install from source; xml2 compiles with only zig-libs'
+include/libxml2 and links `-lxml2 -lm -lws2_32 -lz -llzma -liconv` with
+zig-libs as the only -L besides R's; tests/r/smoke.R xml2 igraph passes
+7/7 (Shift_JIS through iconv, a gzip file through zlib, igraph's GraphML).
+conda-forge libxml2 2.15.4 is in that env only as a dependency of
+conda-forge zig (zig_impl_win-64, through r-zig-compilers): a DLL, no .pc,
+no import library on the -L path. r-consumer drops libxml2-devel and adds
+xml2. The scratch directory was removed.
+
+**S2-F32 V. zig-libcurl 8.18.0 on Schannel (D126 B; 2026-11-24, gamma
+and kappa).** curl's CMake build, the library only: Schannel
+(`CURL_USE_OPENSSL=OFF`), SSPI, WinIDN (-lnormaliz), Windows LDAP
+(-lwldap32), zlib, zstd and brotli from zig-* (CURL_ZLIB/BROTLI/ZSTD ON:
+a missing one is a configure error); libidn2, libpsl, libssh2, nghttp2
+off (no zig-* package). curl leaves pkg-config off when cross compiling
+and finds the three in the sub-prefix. A static-only build writes its
+dependencies into both the public and the `.private` fields of
+libcurl.pc, which close-pc would append a second time
+(`-DCURL_STATICLIB -DCURL_STATICLIB`); the recipe deletes the `.private`
+lines and checks the public ones. CURLConfig.cmake holds the build's
+absolute archive paths: deleted with bin/ (curl-config, wcurl).
+libcurl.pc: `Requires: zlib,libbrotlidec,libbrotlicommon,libzstd`,
+`Libs: -lcurl -lz -lbrotlidec -lbrotlicommon -lzstd -lwldap32 -lnormaliz
+-lbcrypt -ladvapi32 -lcrypt32 -lsecur32 -lws2_32 -liphlpapi`, `Cflags:
+-DCURL_STATICLIB`. Builds: win-64 `zig_38b206d_0`, win-arm64
+`zig_12f6e5a_0`; recipe tests pass on both. kappa win-64:
+tests/smoke/libcurl.c ("libcurl 8.18.0, ssl Schannel, libz 1.3.1, zstd
+1.5.7, brotli 1.2.0", a file:// download) prints OK; a one-off HTTPS test
+(not in the repo) through Windows' CA store: cloud.r-project.org and
+github.com 200, expired.badssl.com refused (CURLE_SSL_CONNECT_ERROR). No
+CA bundle shipped or configured. CRAN's curl R package does not use a
+system libcurl on Windows (tools/winlibs.R always downloads its own
+bundle), so r-consumer does not list it; zig-libcurl's R consumers are
+netcdf's DAP (ncdf4, RNetCDF).
+
+**S2-F33 V. zig-libaec 1.0.6, zig-hdf4 4.2.15, zig-hdf5 1.12.1 (D127 C;
+2026-11-25, gamma and kappa).** Versions and fixes from R's own MXE tree
+(svn.r-project.org R-dev-web trunk WindowsBuilds/winutf8/ucrt3/
+toolchain_libs/mxe/src: aec.mk, hdf4.mk, hdf5.mk; upstream MXE has hdf4
+4.2.10 and no libaec). libaec: only the aec_static and sz_static targets;
+libaec.pc `-laec` and szip.pc `-lsz` are alternatives (libsz.a holds its
+own copy of the 22 aec_* objects; Rtools45's hdf5.pc links -lsz alone).
+HDF4 through its CMake build with its bundled XDR (libxdr.a, BSD-3-Clause
+Sun rewrite; no portablexdr), netCDF-2 API renamed sd_* (nm: no ncopen,
+nc_open, ncvarget; 0 globals in common with libnetcdf.a), with szip
+(beyond Rtools45, whose HDF4 has none), Rtools45's aarch64 patch
+(`_M_ARM64` in hdfi.h), `-DH4_HAVE_WINSOCK2_H` and MXE's
+`-Wno-implicit-int -Wno-incompatible-pointer-types` (long and u_int are
+both 32-bit on Windows); its private error.h and alloc.h are removed (zig's
+MinGW has an error.h); df.pc `Requires: libjpeg zlib szip`, mfhdf.pc
+`-lmfhdf -lxdr -lws2_32`. HDF5 1.12 runs H5detect at build time: its
+H5Tinit.c comes pre-generated from Rtools45's hdf5-2-platform-detection
+patch (H5detect run natively on Windows x86_64 and aarch64, 2024);
+recipes/zig-hdf5/h5tinit-asserts.awk turns all 217 values into
+_Static_asserts compiled for the target (both pass; each arch's file
+fails on the other, 5 long double asserts). Patch for HDF5_USE_PREGEN
+(relative paths, a ninja cycle) and a CMake stand-in for
+H5make_libsettings; szip filter with encoding (H5pubconf.h checked);
+hdf5.pc `Requires: zlib szip`, `-lhdf5 -ladvapi32`. Builds: libaec
+`zig_69fa7dc_0` / `zig_26d81c6_0`, hdf4 `zig_4617172_0` / `zig_554182d_0`,
+hdf5 `zig_f41514d_0` / `zig_03c4281_0` (szip added without a build-string
+change: a host dependency is no variant key; unpublished). kappa win-64:
+tests/smoke/libaec.c, hdf4.c (deflate and szip SDS) and hdf5.c (deflate,
+H5LT, long double; 16-byte long double) print OK; CRAN hdf5r 1.3.16
+installs (`-lhdf5_hl -lhdf5 -ladvapi32 -lz -lsz` from zig-libs) and passes
+deflate and szip round trips. hdf5r's H5P set_szip() passes one argument
+of the three R_H5Pset_szip takes (an hdf5r bug); tests/r/smoke.R calls the
+C entry point. Risk (I): HDF4 installs generic header names in
+zig-libs' include/ (types.h, xdr.h, atom.h, glist.h, linklist.h), as
+Rtools45's tree does (its XDR headers under include/rpc/); r-zig build 13
+turns `-I<zig-libs>/include` into -idirafter (D124 answer), so they
+cannot shadow a system header; a package's own quoted headers come first
+anyway.
+
+**S2-F34 V. zig-netcdf 4.9.2 (D126 B, D127 C; 2026-11-25, gamma and
+kappa).** CMake, MXE's options: netCDF-4 (hdf5), HDF4, DAP2, DAP4, szip
+(write too), NCZarr (file store, as Rtools45), CDF5; byte-range, S3,
+plugins, zstd/blosc filters off (filter plugins are DLLs netCDF never
+builds on MinGW); build.sh checks netcdf_meta.h. `-DDLLEXPORT=`: ncjson.h
+exported 15 NCJ* functions (pkgtest --no-dllexport). The
+`struct stat`/`_stat64` pointer mismatch in dpathmgr.c is safe only with
+`-D_FILE_OFFSET_BITS=64` (netCDF's CMake sets it on MinGW): build.sh
+checks the layout with a _Static_assert. netcdf.h must come before
+mfhdf.h (shared `_NETCDF_` guard). netcdf.pc: `Requires: hdf5_hl hdf5
+mfhdf libcurl libxml-2.0 zlib szip`, `-lnetcdf`. Builds: win-64
+`zig_9d08665_0`, win-arm64 `zig_a0b334e_0`; recipe tests pass. kappa
+win-64: tests/smoke/netcdf.c (netCDF-4 deflate and szip, CDF-1, CDF-5
+with int64, an HDF4 file written with SDwritedata and read with
+nc_get_var_int) prints OK; CRAN ncdf4 1.24 and RNetCDF 2.11-2 (with
+zig-udunits2) install from source through `pkg-config netcdf`; smoke.R
+hdf5r, ncdf4, RNetCDF 7/7. Remote DAP2 over HTTPS through zig-libcurl
+(Schannel), by hand: ncdf4 and RNetCDF read psl.noaa.gov's OPeNDAP
+sst.mnmean.nc. r-consumer adds hdf5r, ncdf4, RNetCDF; the cross job
+limit goes to 240 minutes (win-64 took 87 before the data stack).

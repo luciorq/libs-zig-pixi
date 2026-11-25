@@ -1,0 +1,116 @@
+# zig-freetype: FreeType, static only, for Windows (win-64, win-arm64),
+# cross-built on linux with zig-toolchain through FreeType's own CMake
+# build (D1), with zlib, libpng, bzip2 and Brotli (WOFF2) from zig-zlib,
+# zig-libpng, zig-bzip2 and zig-brotli, without HarfBuzz (slice2 D122).
+# Installed under the private sub-prefix Library/zig-libs/<zig triple>/
+# (D2): lib/libfreetype.a, include/freetype2/ (ft2build.h, freetype/),
+# lib/pkgconfig/freetype2.pc (closed, relocatable, Requires: zlib, bzip2,
+# libpng, libbrotlidec), licenses/freetype/.
+context:
+  version: ${{ freetype_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-freetype
+  version: ${{ version }}
+
+source:
+  - url: https://download.savannah.gnu.org/releases/freetype/freetype-${{ version }}.tar.xz
+    sha256: 32427e8c471ac095853212a37aef816c60b42052d4d9e48230bab3bdf2936ccc
+  # the package test (tests/pkgtest.zig, tests/smoke/freetype.c and its
+  # test font freetype.h), for tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # exact: puts cmake and ninja in the hash (variants.yaml)
+    - cmake ==${{ cmake }}
+    - ninja ==${{ ninja }}
+    # FreeType's CMake asks pkg-config for bzip2.pc (Requires bzip2 in
+    # freetype2.pc, else a bare -lbz2) and libbrotlidec.pc;
+    # PKG_CONFIG_LIBDIR is the host's zig-libs
+    - pkgconf
+  host:
+    - zig-zlib
+    - zig-libpng
+    - zig-bzip2
+    - zig-brotli
+  run_exports:
+    weak:
+      - ${{ pin_subpackage("zig-freetype", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libfreetype.a
+          - ${{ sub }}/include/freetype2/ft2build.h
+          - ${{ sub }}/include/freetype2/freetype/freetype.h
+          - ${{ sub }}/include/freetype2/freetype/config/ftoption.h
+          - ${{ sub }}/include/freetype2/freetype/config/ftconfig.h
+          - ${{ sub }}/lib/pkgconfig/freetype2.pc
+          - ${{ sub }}/licenses/freetype/LICENSE.TXT
+          - ${{ sub }}/licenses/freetype/FTL.TXT
+          - ${{ sub }}/licenses/freetype/GPLv2.TXT
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library, no programs; no CMake package (build.sh says why)
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.exe"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/lib/cmake/**
+          - ${{ sub }}/share/**
+  # tests/pkgtest.zig (its header says what it checks): freetype2.pc pulls
+  # zig-zlib's, zig-libpng's, zig-bzip2's and zig-brotli's .pc files
+  # through Requires (the --require words); the relocated .pc resolves to
+  # existing paths, no absolute prefix in it, no build path in the
+  # archives, no C symbol in two archives of the closure (no internal zlib
+  # copy in libfreetype.a), no dllexport directive, and
+  # tests/smoke/freetype.c links (and runs, on Windows of the same arch: a
+  # generated TrueType font loaded from memory and through the bzip2
+  # stream, a glyph rendered, the zlib path). One plain command for bash
+  # (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -lfreetype --require -lpng16 --require -lz --require -lbz2 --require -lbrotlidec ${{ zt }} freetype2 zig-libs-tests/smoke/freetype.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/freetype.c
+        - zig-libs-tests/smoke/freetype.h
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://freetype.org/
+  license: FTL OR GPL-2.0-or-later
+  license_file:
+    - LICENSE.TXT
+    - docs/FTL.TXT
+    - docs/GPLv2.TXT
+  summary: FreeType font rendering library, static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://gitlab.freedesktop.org/freetype/freetype

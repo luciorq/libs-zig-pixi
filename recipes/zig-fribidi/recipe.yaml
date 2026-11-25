@@ -1,0 +1,95 @@
+# zig-fribidi: GNU FriBidi, static only, for Windows (win-64, win-arm64),
+# cross-built on linux with zig-toolchain through FriBidi's own meson build
+# (D1; slice2 D119). Installed under the private sub-prefix
+# Library/zig-libs/<zig triple>/ (D2): lib/libfribidi.a, include/fribidi/,
+# lib/pkgconfig/fribidi.pc (meson's, -DFRIBIDI_LIB_STATIC in Cflags, closed
+# and relocatable), licenses/fribidi/.
+context:
+  version: ${{ fribidi_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-fribidi
+  version: ${{ version }}
+
+source:
+  - url: https://github.com/fribidi/fribidi/releases/download/v${{ version }}/fribidi-${{ version }}.tar.xz
+    sha256: 1b1cde5b235d40479e91be2f0e88a309e3214c8ab470ec8a2744d82a5a9ea05c
+  # the package test (tests/pkgtest.zig, tests/smoke/fribidi.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # exact: puts meson and ninja in the hash (variants.yaml)
+    - meson ==${{ meson }}
+    - ninja ==${{ ninja }}
+    - python
+  run_exports:
+    weak:
+      - ${{ pin_subpackage("zig-fribidi", upper_bound="x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libfribidi.a
+          - ${{ sub }}/include/fribidi/fribidi.h
+          - ${{ sub }}/include/fribidi/fribidi-config.h
+          - ${{ sub }}/include/fribidi/fribidi-unicode-version.h
+          - ${{ sub }}/lib/pkgconfig/fribidi.pc
+          - ${{ sub }}/licenses/fribidi/COPYING
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library, no programs, no man pages
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.exe"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/share/**
+  # tests/pkgtest.zig (its header says what it checks): fribidi.pc has
+  # -DFRIBIDI_LIB_STATIC (fribidi-common.h dllimports otherwise); the
+  # relocated .pc resolves to existing paths, no absolute prefix in it, no
+  # build path in libfribidi.a, no dllexport directive, and
+  # tests/smoke/fribidi.c links (and runs, on Windows of the same arch:
+  # mixed Hebrew/Latin text reordered to visual order, the version). One
+  # plain command for bash (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -DFRIBIDI_LIB_STATIC ${{ zt }} fribidi zig-libs-tests/smoke/fribidi.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/fribidi.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://github.com/fribidi/fribidi
+  license: LGPL-2.1-or-later
+  license_file: COPYING
+  summary: GNU FriBidi Unicode bidirectional algorithm library, static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/fribidi/fribidi

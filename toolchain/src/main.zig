@@ -4,10 +4,12 @@
 //!
 //!   <triple>-cc, <triple>-c++   zig cc|c++ -target <zig triple> -mcpu=baseline
 //!                               -fno-sanitize=undefined -Wno-date-time <args>
-//!                               (-march/-mcpu values in zig's spelling, flags.zig)
+//!                               (-march/-mcpu values in zig's spelling; linker
+//!                               options zig rejects dropped, flags.zig)
 //!   <triple>-ar, <triple>-ranlib  zig ar|ranlib <args>
 //!   <triple>-dlltool            zig dlltool, GNU's options translated (binutils.zig)
-//!   <triple>-windres            zig rc, GNU windres' options translated (binutils.zig)
+//!   <triple>-windres            zig rc, GNU windres' options translated (binutils.zig);
+//!                               --version prints "GNU windres compatible: ..."
 //!   <triple>-rc                 zig rc /:target <arch> <args> (rc.exe's options)
 //!   <triple>-strip              a no-op, exit 0 (objects are built with -g0;
 //!                               `cmake --install --strip` stays harmless)
@@ -179,6 +181,15 @@ fn runTool(init: std.process.Init, c: Call, rest: []const []const u8) !u8 {
     const io = init.io;
     const env = init.environ_map;
     const zig = zigPath(env);
+    // GNU windres' version line: meson's windows module tells a GNU
+    // windres by "GNU windres" in `--version` (else "Could not determine
+    // type of Windows resource compiler"; slice2 PLAN.md S2-F26, D120).
+    // rzig's windres prints the same words from r-zig build 13.
+    if (c.tool == .windres) for (rest) |x| if (mem.eql(u8, x, "--version") or mem.eql(u8, x, "-V")) {
+        const line = try std.fmt.allocPrint(a, "GNU windres compatible: zig-toolchain {s} (zig rc)\n", .{version});
+        Io.File.stdout().writeStreamingAll(io, line) catch return 1;
+        return 0;
+    };
     const tail: []const []const u8 = switch (c.tool) {
         .cc => try flags.compilerArgs(a, "cc", c.target, rest),
         .cxx => try flags.compilerArgs(a, "c++", c.target, rest),

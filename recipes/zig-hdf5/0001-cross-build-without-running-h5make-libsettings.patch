@@ -1,0 +1,82 @@
+Cross build without running build-time programs (zig-hdf5 build.sh says
+why): a cross build cannot run H5make_libsettings, so with
+CMAKE_CROSSCOMPILING and no CMAKE_CROSSCOMPILING_EMULATOR a CMake script,
+config/cmake/H5make_libsettings.cmake, writes the same H5lib_settings.c
+(H5libhdf5_settings[]: libhdf5.settings as a C string, or "" without
+H5_HAVE_EMBEDDED_LIBINFO). And HDF5_USE_PREGEN's custom command names
+gen_SRCS.stamp1 and H5Tinit.c relative to the build and source dirs, not
+to HDF5_USE_PREGEN_DIR, so the target's dependency on
+${HDF5_GENERATED_SOURCE_DIR}/gen_SRCS.stamp1 had no rule; both are absolute
+now (as MXE's and Rtools45's hdf5 patches do). The pre-generated H5Tinit.c
+is no longer marked GENERATED: no rule makes it, and with the mark Ninja
+finds a dependency cycle (gen_hdf5-static -> H5Tinit.c ->
+cmake_object_order_depends_target_hdf5-static -> gen_hdf5-static); MXE
+builds with Makefiles, which do not check.
+
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -1097,14 +1097,13 @@
+   endif ()
+ else ()
+   add_custom_command (
+-      OUTPUT     gen_SRCS.stamp1
++      OUTPUT     ${HDF5_GENERATED_SOURCE_DIR}/gen_SRCS.stamp1
+       COMMAND    ${CMAKE_COMMAND}
+       ARGS       -E touch gen_SRCS.stamp1
+-      DEPENDS H5Tinit.c
++      DEPENDS    ${HDF5_GENERATED_SOURCE_DIR}/H5Tinit.c
+       WORKING_DIRECTORY ${HDF5_GENERATED_SOURCE_DIR}
+       COMMENT    "Touch existing H5Tinit.c"
+   )
+-  set_source_files_properties (${HDF5_GENERATED_SOURCE_DIR}/H5Tinit.c PROPERTIES GENERATED TRUE)
+   if (BUILD_SHARED_LIBS)
+     add_custom_command (
+         OUTPUT     shared/shared_gen_SRCS.stamp1
+@@ -1128,6 +1127,21 @@
+   clang_format (HDF5_SRC_DETECT_FORMAT ${HDF5_SRC_DIR}/H5detect.c)
+ endif ()
+ 
++if (CMAKE_CROSSCOMPILING AND NOT CMAKE_CROSSCOMPILING_EMULATOR)
++# A cross build cannot run H5make_libsettings: H5make_libsettings.cmake
++# writes the same H5lib_settings.c from libhdf5.settings.
++add_custom_command (
++    OUTPUT     ${HDF5_SRC_BINARY_DIR}/H5lib_settings.c ${HDF5_SRC_BINARY_DIR}/gen_SRCS.stamp2
++    COMMAND    ${CMAKE_COMMAND}
++    ARGS       -DEMBED=${H5_HAVE_EMBEDDED_LIBINFO} -DSETTINGS=libhdf5.settings -DOUT=H5lib_settings.c -P ${HDF5_SOURCE_DIR}/config/cmake/H5make_libsettings.cmake
++    COMMAND    ${CMAKE_COMMAND}
++    ARGS       -E touch gen_SRCS.stamp2
++    DEPENDS    ${HDF5_SRC_BINARY_DIR}/libhdf5.settings ${HDF5_SOURCE_DIR}/config/cmake/H5make_libsettings.cmake
++    WORKING_DIRECTORY ${HDF5_SRC_BINARY_DIR}
++    COMMENT    "Create H5lib_settings.c"
++)
++set_source_files_properties (${HDF5_SRC_BINARY_DIR}/H5lib_settings.c PROPERTIES GENERATED TRUE)
++else ()
+ add_executable (H5make_libsettings ${HDF5_SRC_DIR}/H5make_libsettings.c)
+ target_include_directories (H5make_libsettings PRIVATE "${HDF5_SRC_DIR};${HDF5_SRC_BINARY_DIR};$<$<BOOL:${HDF5_ENABLE_PARALLEL}>:${MPI_C_INCLUDE_DIRS}>")
+ target_compile_definitions(H5make_libsettings PUBLIC ${HDF_EXTRA_C_FLAGS} ${HDF_EXTRA_FLAGS})
+@@ -1171,6 +1185,7 @@
+   )
+   set_source_files_properties (${HDF5_SRC_BINARY_DIR}/shared/H5lib_settings.c PROPERTIES GENERATED TRUE)
+ endif ()
++endif ()
+ 
+ ## all_packages="AC,B,B2,D,F,FA,FL,FS,HL,I,O,S,ST,T,Z"
+ #all_packages="AC,B2,CX,D,F,HL,I,O,S,ST,T,Z"
+--- a/config/cmake/H5make_libsettings.cmake
++++ b/config/cmake/H5make_libsettings.cmake
+@@ -0,0 +1,15 @@
++# H5make_libsettings.c's output for a cross build, which cannot run that
++# program: H5libhdf5_settings[] holds libhdf5.settings as a C string with
++# H5_HAVE_EMBEDDED_LIBINFO, else an empty string.
++#   cmake -DEMBED=<0|1> -DSETTINGS=<libhdf5.settings> -DOUT=<H5lib_settings.c> -P H5make_libsettings.cmake
++if (EMBED)
++  file (READ "${SETTINGS}" s)
++  string (REPLACE "\\" "\\\\" s "${s}")
++  string (REPLACE "\"" "\\\"" s "${s}")
++  string (REGEX REPLACE "\n$" "" s "${s}")
++  string (REPLACE "\n" "\\n\"\n\t\"" s "${s}")
++  set (s "char H5libhdf5_settings[]=\n\t\"${s}\\n\"\n;\n")
++else ()
++  set (s "char H5libhdf5_settings[]=\"\";\n")
++endif ()
++file (WRITE "${OUT}" "/* Generated automatically by H5make_libsettings.cmake -- do not edit */\n\n${s}")

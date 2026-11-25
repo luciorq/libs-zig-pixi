@@ -1,0 +1,98 @@
+# zig-libjpeg: IJG libjpeg 9f (not libjpeg-turbo, as CRAN's Rtools45
+# tree), static only, for Windows (win-64, win-arm64), cross-built on linux
+# with zig-toolchain through IJG's own autotools configure (D1), run by
+# `zig-toolchain configure` (slice2 D104). Installed under the private
+# sub-prefix Library/zig-libs/<zig triple>/ (D2): lib/libjpeg.a,
+# include/{jpeglib,jconfig,jmorecfg,jerror}.h, lib/pkgconfig/libjpeg.pc
+# (upstream's, Version 9.6.0, closed and relocatable), licenses/libjpeg/.
+context:
+  version: ${{ libjpeg_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-libjpeg
+  version: ${{ version }}
+
+source:
+  - url: https://www.ijg.org/files/jpegsrc.v${{ version }}.tar.gz
+    sha256: 04705c110cb2469caa79fb71fba3d7bf834914706e9641a4589485c1f832565b
+  # the package test (tests/pkgtest.zig, tests/smoke/libjpeg.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # configure and make; exact: puts make and llvm_tools in the hash
+    # (variants.yaml). llvm-nm is configure's NM (zig-toolchain configure).
+    - make ==${{ make }}
+    - llvm-tools ==${{ llvm_tools }}
+  run_exports:
+    weak:
+      - ${{ pin_subpackage("zig-libjpeg", upper_bound="x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libjpeg.a
+          - ${{ sub }}/include/jpeglib.h
+          - ${{ sub }}/include/jconfig.h
+          - ${{ sub }}/include/jmorecfg.h
+          - ${{ sub }}/include/jerror.h
+          - ${{ sub }}/lib/pkgconfig/libjpeg.pc
+          - ${{ sub }}/licenses/libjpeg/README
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library; no libtool archive, no programs, no man pages
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.la"
+          - "**/*.exe"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/share/**
+  # tests/pkgtest.zig (its header says what it checks): the relocated .pc
+  # resolves to existing paths, no absolute prefix in it, no build path in
+  # libjpeg.a, no dllexport directive, and tests/smoke/libjpeg.c links (and
+  # runs, on Windows of the same arch: a compress/decompress round trip in
+  # memory, the library version). One plain command for bash (linux) and
+  # cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport ${{ zt }} libjpeg zig-libs-tests/smoke/libjpeg.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/libjpeg.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://www.ijg.org/
+  license: IJG
+  # the IJG licence is README's LEGAL ISSUES section
+  license_file: README
+  summary: IJG libjpeg, static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://www.ijg.org/files/

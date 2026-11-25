@@ -1,0 +1,121 @@
+# zig-netcdf: netCDF-C 4.9.2 (the version Rtools45 ships), static only,
+# for Windows (win-64, win-arm64), cross-built on linux with zig-toolchain
+# through netCDF's own CMake build (D1), with Rtools45's features (slice2
+# D126 B, D127 C): netCDF-4 on zig-hdf5 (zlib, szip), HDF4 read access on
+# zig-hdf4, DAP2 and DAP4 on zig-libcurl (Schannel) and zig-libxml2, and
+# NCZarr's file store, as MXE's build enables it. No byte-range or S3, no
+# filter plugins (DLLs), no utilities, tests or examples. Installed under
+# the private sub-prefix Library/zig-libs/<zig triple>/ (D2):
+# lib/libnetcdf.a, include/{netcdf,netcdf_meta,netcdf_mem,...}.h,
+# lib/pkgconfig/netcdf.pc (written by the recipe; closed, relocatable,
+# Requires: hdf5_hl hdf5 mfhdf libcurl libxml-2.0 zlib szip),
+# licenses/netcdf/.
+context:
+  version: ${{ netcdf_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-netcdf
+  version: ${{ version }}
+
+source:
+  # sha256 as in MXE's and Rtools45's netcdf.mk
+  - url: https://github.com/Unidata/netcdf-c/archive/refs/tags/v${{ version }}.tar.gz
+    sha256: bc104d101278c68b303359b3dc4192f81592ae8640f1aee486921138f7f88cb7
+  # the package test (tests/pkgtest.zig, tests/smoke/netcdf.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # exact: puts cmake and ninja in the hash (variants.yaml)
+    - cmake ==${{ cmake }}
+    - ninja ==${{ ninja }}
+  host:
+    - zig-hdf5
+    - zig-hdf4
+    - zig-libcurl
+    - zig-libxml2
+    - zig-libaec
+    - zig-zlib
+    # HDF4 support: netCDF's CMake requires jpeglib.h and libjpeg.a
+    - zig-libjpeg
+  run_exports:
+    weak:
+      # libnetcdf's soname moves with the minor release (4.9: 19)
+      - ${{ pin_subpackage("zig-netcdf", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libnetcdf.a
+          - ${{ sub }}/include/netcdf.h
+          - ${{ sub }}/include/netcdf_meta.h
+          - ${{ sub }}/include/netcdf_mem.h
+          - ${{ sub }}/include/netcdf_filter.h
+          - ${{ sub }}/include/netcdf_dispatch.h
+          - ${{ sub }}/lib/pkgconfig/netcdf.pc
+          - ${{ sub }}/licenses/netcdf/COPYRIGHT
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library; no utilities, no nc-config, no filter plugins, no CMake
+        # config, no libnetcdf.settings, no docs
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.exe"
+          - "**/lib__nc*"
+          - ${{ sub }}/lib/libnetcdf.settings
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/share/**
+          - ${{ sub }}/lib/cmake/**
+  # tests/pkgtest.zig (its header says what it checks): netcdf.pc pulls
+  # hdf5_hl.pc, hdf5.pc, mfhdf.pc (and df.pc), libcurl.pc, libxml-2.0.pc,
+  # zlib.pc and szip.pc through Requires (--require -l<n> for each); the
+  # relocated .pc resolves to existing paths, no absolute prefix in it, no
+  # build path in the archives, no C symbol defined in two archives of
+  # the closure (libnetcdf.a next to HDF4's libmfhdf.a, libdf.a and
+  # libxdr.a), no dllexport directive, and tests/smoke/netcdf.c links (and
+  # runs, on Windows of the same arch: netCDF-4 with deflate and szip
+  # variables, CDF-1 and CDF-5 files with attributes, read back; an HDF4
+  # SDS written with HDF4's SD API and read through nc_open). One plain
+  # command for bash (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -lhdf5 --require -lmfhdf --require -lcurl --require -lxml2 --require -lsz --require -lz ${{ zt }} netcdf zig-libs-tests/smoke/netcdf.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/netcdf.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://www.unidata.ucar.edu/software/netcdf/
+  license: BSD-3-Clause
+  license_file: COPYRIGHT
+  summary: netCDF-C (Network Common Data Form), static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/Unidata/netcdf-c
