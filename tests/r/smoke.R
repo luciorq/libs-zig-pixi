@@ -1,8 +1,9 @@
 # Smoke test of the R packages that link the zig-* libraries (DESIGN 9.2,
 # M4; slice 2 adds gmp, Rmpfr, igraph, nloptr, units, gsl, RPostgres and
 # the text stack's png, jpeg, tiff, webp, systemfonts, textshaping, ragg,
-# and xml2): sf, terra, gdalraster, s2, gmp, Rmpfr, igraph, nloptr, units,
-# gsl, RPostgres, png, jpeg, tiff, webp, systemfonts, textshaping, ragg, xml2.
+# xml2, and the data stack's hdf5r, ncdf4, RNetCDF): sf, terra, gdalraster,
+# s2, gmp, Rmpfr, igraph, nloptr, units, gsl, RPostgres, png, jpeg, tiff,
+# webp, systemfonts, textshaping, ragg, xml2, hdf5r, ncdf4, RNetCDF.
 # RPostgres' query checks need a server: R_SMOKE_PG names one as libpq
 # connection keywords (e.g. "host=127.0.0.1 port=5432 user=postgres
 # dbname=postgres"); without it they are left out. Run it with the R that
@@ -13,7 +14,7 @@
 # 2026-11-22 (r-zig-pixi feat-zig-libs PLAN.md).
 args <- commandArgs(trailingOnly = TRUE)
 pkgs <- if (length(args)) args else c("sf", "terra", "gdalraster", "s2", "gmp", "Rmpfr", "igraph", "nloptr", "units", "gsl", "RPostgres",
-                                         "png", "jpeg", "tiff", "webp", "systemfonts", "textshaping", "ragg", "xml2")
+                                         "png", "jpeg", "tiff", "webp", "systemfonts", "textshaping", "ragg", "xml2", "hdf5r", "ncdf4", "RNetCDF")
 
 res <- character()
 chk <- function(name, expr) {
@@ -362,6 +363,61 @@ if ("xml2" %in% pkgs) {
   chk("xml2: gzip-compressed file (zlib)", {
     f <- tempfile(fileext = ".xml.gz"); con <- gzfile(f, "w"); writeLines("<a><b>gz</b></a>", con); close(con)
     identical(xml2::xml_text(xml2::read_xml(f)), "gz")
+  })
+}
+
+# slice 2 data stack (D126 B, D127 C): zig-hdf5 with zlib and szip (libaec)
+if ("hdf5r" %in% pkgs) {
+  suppressPackageStartupMessages(library(hdf5r))
+  m <- matrix(as.integer(seq_len(2400) %% 97), 40, 60)
+  chk("hdf5r: HDF5 1.12 library", {
+    v <- numeric_version(paste(h5version(verbose = FALSE), collapse = "."))
+    v >= "1.12" && v < "1.13"
+  })
+  chk("hdf5r: chunked deflate dataset round trip (zlib)", {
+    f <- tempfile(fileext = ".h5"); h <- H5File$new(f, mode = "w")
+    h$create_dataset("d", m, chunk_dims = c(10, 10), gzip_level = 6); h$close_all()
+    h <- H5File$new(f, mode = "r"); r <- h[["d"]][, ]; h$close_all(); identical(r, m)
+  })
+  chk("hdf5r: szip dataset round trip (libaec)", {
+    # hdf5r 1.3.16's H5P set_szip() calls R_H5Pset_szip with one argument
+    # of three, so the C entry point directly: options_mask
+    # H5_SZIP_NN_OPTION_MASK (32), 16 pixels per block
+    f <- tempfile(fileext = ".h5"); h <- H5File$new(f, mode = "w")
+    sp <- H5P_DATASET_CREATE$new(); sp$set_chunk(c(10, 10))
+    stopifnot(.Call("R_H5Pset_szip", sp$id, 32L, 16L, PACKAGE = "hdf5r")$return_val >= 0)
+    h$create_dataset("s", m, dataset_create_pl = sp); h$close_all()
+    h <- H5File$new(f, mode = "r"); r <- h[["s"]][, ]; h$close_all(); identical(r, m)
+  })
+}
+
+# zig-netcdf (netCDF-4 through zig-hdf5, classic formats); DAP needs a
+# server, so it is checked by hand (slice2 PLAN.md S2-F34)
+if ("ncdf4" %in% pkgs) {
+  chk("ncdf4: netCDF-4 compressed variable round trip (hdf5)", {
+    f <- tempfile(fileext = ".nc")
+    x <- ncdf4::ncdim_def("x", "m", 1:30); y <- ncdf4::ncdim_def("y", "m", 1:20)
+    v <- ncdf4::ncvar_def("t", "K", list(x, y), -999, prec = "double", compression = 6)
+    nc <- ncdf4::nc_create(f, v, force_v4 = TRUE)
+    m <- outer(1:30, 1:20, function(i, j) i * 0.5 + j)
+    ncdf4::ncvar_put(nc, v, m); ncdf4::ncatt_put(nc, 0, "title", "zig-libs"); ncdf4::nc_close(nc)
+    nc <- ncdf4::nc_open(f); r <- ncdf4::ncvar_get(nc, "t"); a <- ncdf4::ncatt_get(nc, 0, "title")$value
+    fmt <- nc$format; ncdf4::nc_close(nc)
+    isTRUE(all.equal(r, m)) && identical(a, "zig-libs") && fmt == "NC_FORMAT_NETCDF4"
+  })
+}
+if ("RNetCDF" %in% pkgs) {
+  for (fmt in c("classic", "data64", "netcdf4")) local({
+    fmt <- fmt
+    chk(sprintf("RNetCDF: %s file round trip", fmt), {
+      f <- tempfile(fileext = ".nc"); nc <- RNetCDF::create.nc(f, format = fmt)
+      RNetCDF::dim.def.nc(nc, "n", 50)
+      RNetCDF::var.def.nc(nc, "v", if (fmt == "classic") "NC_INT" else "NC_INT64", "n")
+      x <- if (fmt == "classic") 1:50 else seq(1, 50) * 1e10
+      RNetCDF::var.put.nc(nc, "v", x); RNetCDF::close.nc(nc)
+      nc <- RNetCDF::open.nc(f); r <- RNetCDF::var.get.nc(nc, "v"); RNetCDF::close.nc(nc)
+      isTRUE(all.equal(as.numeric(r), as.numeric(x)))
+    })
   })
 }
 
