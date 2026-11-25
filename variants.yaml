@@ -130,3 +130,15 @@ libiconv_version:
   - "1.17"
 libxml2_version:
   - "2.12.10"
+# data stack (slice2 D126 B): Rtools45's versions; libcurl on Schannel
+hdf5_version:
+  - "1.12.1"
+libcurl_version:
+  - "8.18.0"
+netcdf_version:
+  - "4.9.2"
+# szip and HDF4 for hdf5/netcdf, as Rtools45 (slice2 D127 C)
+libaec_version:
+  - "1.0.6"
+hdf4_version:
+  - "4.2.15"
