@@ -242,6 +242,11 @@ Written by `zig-toolchain close-pc` after install [consumer §1, §3]:
 | zig-harfbuzz (slice 2) | MIT | |
 | zig-libiconv (slice 2) | **LGPL-2.1-or-later** (the library; the GPL-3.0 iconv program is not shipped) | relink obligation as GEOS |
 | zig-libxml2 (slice 2) | MIT | |
+| zig-libcurl (slice 2) | curl (MIT-style) | |
+| zig-libaec (slice 2) | BSD-2-Clause | |
+| zig-hdf4 (slice 2) | BSD-3-Clause (HDF4; its bundled XDR BSD-3-Clause, licenses/hdf4/xdr-LICENSE) | |
+| zig-hdf5 (slice 2) | BSD-3-Clause (HDF5) | |
+| zig-netcdf (slice 2) | BSD-3-Clause (netCDF) | |
 | zig-glpk (slice 2) | **GPL-3.0-or-later** | internal zlib (Zlib), AMD and COLAMD (SuiteSparse, LGPL-2.1-or-later), MiniSat (MIT); their READMEs/LICENSE in `licenses/glpk/` |
 
   Slice 2 (slice2 PLAN.md D105, user 2026-11-23): the GPL and LGPL

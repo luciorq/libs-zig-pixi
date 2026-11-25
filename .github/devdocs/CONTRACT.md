@@ -25,7 +25,11 @@ they differ from this summary.
   zig-libtiff, zig-freetype, zig-fribidi, zig-harfbuzz, and the
   compression libraries zig-zstd, zig-xz, zig-libdeflate, zig-brotli,
   zig-bzip2; zig-libxml2 (libxml-2.0.pc, with zlib, lzma and iconv)
-  and zig-libiconv (iconv.pc: the name Rtools45 ships) (D125).
+  and zig-libiconv (iconv.pc: the name Rtools45 ships) (D125); the data
+  stack (D126 B, D127 C): zig-hdf5 1.12.1 (hdf5.pc, hdf5_hl.pc, szip),
+  zig-netcdf 4.9.2 (netCDF-4, HDF4, DAP2/DAP4, szip, NCZarr file store),
+  zig-libcurl 8.18.0 (Schannel, Windows' CA store), zig-hdf4 4.2.15
+  (df.pc, mfhdf.pc), zig-libaec 1.0.6 (szip.pc, libaec.pc).
   `zig-toolchain`
   (linux-64) is the build tool, not for consumers.
 - Only published builds are part of the contract. A consumer never
@@ -163,7 +167,7 @@ a `.pc` names is in `lib/`.
   job (build.yml; slice2/PLAN.md D113), `tests/r/install.R` then
   `tests/r/smoke.R` (sf, terra, gdalraster, s2, gmp, Rmpfr, igraph,
   nloptr, units, gsl, RPostgres, png, jpeg, tiff, webp, systemfonts,
-  textshaping, ragg, xml2, on both arches; RPostgres' queries
+  textshaping, ragg, xml2, hdf5r, ncdf4, RNetCDF, on both arches; RPostgres' queries
   against a throwaway PostgreSQL server on win-64), with r-zig-slim and r-zig-toolchain
   pinned to build 12 (D116). The publish job needs it, and it fails the
   run.

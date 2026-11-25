@@ -79,6 +79,8 @@ per-library fallback, text below).
 | D123 | zig names a `-c` output without `-o` `<stem>.obj` for Windows (S2-F29) | A zig-toolchain's cc/c++ wrapper appends `-o <stem>.o`, as MinGW gcc and rzig (r-zig-pixi fix-stress-round1 S7, objSuffix); B per-recipe overrides (zig-bzip2's `CC="$CC -o $@"`) | A, dated 2026-11-24 | the same rule as r-zig's; bzip2's override goes, and PostgreSQL's autotools OBJEXT problem (S2-F26) would not have arisen. Autotools builds now see OBJEXT=o; zig-toolchain 0.2.0 is unpublished, so no version change | mine |
 | D124 | CRAN jpeg needs LOCAL_SOFT, which r-zig build 12 leaves empty (S2-F30) | A the r-consumer install step sets LOCAL_SOFT to the env's zig-libs tree and the finding goes to r-zig-pixi (whose Rcmd_environ could default it, as it does R_TOOLS_SOFT); B drop jpeg from r-consumer until r-zig decides; C nothing in CI, a CONTRACT note only | A, dated 2026-11-24 (default, vetoable) | jpeg is the only package of the 18 that reads LOCAL_SOFT; one env line in one step, removed when r-zig sets it; the libraries are not at fault. The r-zig-pixi session (2026-11-24): LOCAL_SOFT was left empty only to keep the Rtools45 sysroot away from zig (LOCAL_CPPFLAGS -I on every compile), which does not apply to zig-libs; r-zig build 13 (r-zig-pixi PR #57) defaults it to R_ZIG_LIBS and turns `-I<zig-libs>/include` into -idirafter; the workaround stands until build 13 is published | mine, r-zig-pixi agreed |
 | D125 | libxml2 2.12.10 scope (Rtools45: zlib, lzma, GNU libiconv) | A zlib and lzma only (built-in UTF-8/16, Latin-1, ASCII); B A plus a new zig-libiconv 1.17 (LGPL), Rtools45 parity; C ICU for encodings | B, dated 2026-11-24 | documents in any encoding parse (xml2, igraph); libiconv is a small autotools build; ICU is a large C++ build no R package here needs | user |
+| D126 | Data stack scope (D103's last item): Rtools45 has hdf5 1.12.1, netcdf 4.9.2, libcurl 8.18.0 | A parity, libcurl on zig-openssl; B parity, libcurl on Schannel (Windows TLS and CA store); C B plus a new zig-libaec (szip); D hdf5 and netcdf only, no libcurl (no DAP) | B, dated 2026-11-24 | no CA bundle to ship or point to; Windows' own TLS. Correction after the choice (the menu said Rtools45 has no libaec): its netcdf.pc links libsz.a (libaec's szip) and HDF4 (libmfhdf.a, libdf.a), only without a .pc; its libcurl has OpenSSL and Schannel, libssh2, nghttp2, libidn2, libpsl (probe-rtools/closedpc). B leaves out szip, HDF4, SFTP/SCP, HTTP/2, libpsl; IDN through Windows (WinIDN). Put to the user again for szip | user |
+| D127 | szip and HDF4 (corrects D126's menu: Rtools45's netcdf links libsz.a and HDF4) | A a new zig-libaec (szip) for hdf5 and netcdf; B D126 B as chosen, no szip; C szip and a new zig-hdf4, netcdf reading HDF4 files: full Rtools45 parity | C, dated 2026-11-24 | CRAN parity for netcdf; szip-compressed and HDF4 (MODIS-era) data read as on CRAN | user |
 
 D104 in the user's words: "As soon as cross-compiling a library with
 autotools gets tricky, stop and switch that library to another path
@@ -797,3 +799,89 @@ conda-forge libxml2 2.15.4 is in that env only as a dependency of
 conda-forge zig (zig_impl_win-64, through r-zig-compilers): a DLL, no .pc,
 no import library on the -L path. r-consumer drops libxml2-devel and adds
 xml2. The scratch directory was removed.
+
+**S2-F32 V. zig-libcurl 8.18.0 on Schannel (D126 B; 2026-11-24, gamma
+and kappa).** curl's CMake build, the library only: Schannel
+(`CURL_USE_OPENSSL=OFF`), SSPI, WinIDN (-lnormaliz), Windows LDAP
+(-lwldap32), zlib, zstd and brotli from zig-* (CURL_ZLIB/BROTLI/ZSTD ON:
+a missing one is a configure error); libidn2, libpsl, libssh2, nghttp2
+off (no zig-* package). curl leaves pkg-config off when cross compiling
+and finds the three in the sub-prefix. A static-only build writes its
+dependencies into both the public and the `.private` fields of
+libcurl.pc, which close-pc would append a second time
+(`-DCURL_STATICLIB -DCURL_STATICLIB`); the recipe deletes the `.private`
+lines and checks the public ones. CURLConfig.cmake holds the build's
+absolute archive paths: deleted with bin/ (curl-config, wcurl).
+libcurl.pc: `Requires: zlib,libbrotlidec,libbrotlicommon,libzstd`,
+`Libs: -lcurl -lz -lbrotlidec -lbrotlicommon -lzstd -lwldap32 -lnormaliz
+-lbcrypt -ladvapi32 -lcrypt32 -lsecur32 -lws2_32 -liphlpapi`, `Cflags:
+-DCURL_STATICLIB`. Builds: win-64 `zig_38b206d_0`, win-arm64
+`zig_12f6e5a_0`; recipe tests pass on both. kappa win-64:
+tests/smoke/libcurl.c ("libcurl 8.18.0, ssl Schannel, libz 1.3.1, zstd
+1.5.7, brotli 1.2.0", a file:// download) prints OK; a one-off HTTPS test
+(not in the repo) through Windows' CA store: cloud.r-project.org and
+github.com 200, expired.badssl.com refused (CURLE_SSL_CONNECT_ERROR). No
+CA bundle shipped or configured. CRAN's curl R package does not use a
+system libcurl on Windows (tools/winlibs.R always downloads its own
+bundle), so r-consumer does not list it; zig-libcurl's R consumers are
+netcdf's DAP (ncdf4, RNetCDF).
+
+**S2-F33 V. zig-libaec 1.0.6, zig-hdf4 4.2.15, zig-hdf5 1.12.1 (D127 C;
+2026-11-25, gamma and kappa).** Versions and fixes from R's own MXE tree
+(svn.r-project.org R-dev-web trunk WindowsBuilds/winutf8/ucrt3/
+toolchain_libs/mxe/src: aec.mk, hdf4.mk, hdf5.mk; upstream MXE has hdf4
+4.2.10 and no libaec). libaec: only the aec_static and sz_static targets;
+libaec.pc `-laec` and szip.pc `-lsz` are alternatives (libsz.a holds its
+own copy of the 22 aec_* objects; Rtools45's hdf5.pc links -lsz alone).
+HDF4 through its CMake build with its bundled XDR (libxdr.a, BSD-3-Clause
+Sun rewrite; no portablexdr), netCDF-2 API renamed sd_* (nm: no ncopen,
+nc_open, ncvarget; 0 globals in common with libnetcdf.a), with szip
+(beyond Rtools45, whose HDF4 has none), Rtools45's aarch64 patch
+(`_M_ARM64` in hdfi.h), `-DH4_HAVE_WINSOCK2_H` and MXE's
+`-Wno-implicit-int -Wno-incompatible-pointer-types` (long and u_int are
+both 32-bit on Windows); its private error.h and alloc.h are removed (zig's
+MinGW has an error.h); df.pc `Requires: libjpeg zlib szip`, mfhdf.pc
+`-lmfhdf -lxdr -lws2_32`. HDF5 1.12 runs H5detect at build time: its
+H5Tinit.c comes pre-generated from Rtools45's hdf5-2-platform-detection
+patch (H5detect run natively on Windows x86_64 and aarch64, 2024);
+recipes/zig-hdf5/h5tinit-asserts.awk turns all 217 values into
+_Static_asserts compiled for the target (both pass; each arch's file
+fails on the other, 5 long double asserts). Patch for HDF5_USE_PREGEN
+(relative paths, a ninja cycle) and a CMake stand-in for
+H5make_libsettings; szip filter with encoding (H5pubconf.h checked);
+hdf5.pc `Requires: zlib szip`, `-lhdf5 -ladvapi32`. Builds: libaec
+`zig_69fa7dc_0` / `zig_26d81c6_0`, hdf4 `zig_4617172_0` / `zig_554182d_0`,
+hdf5 `zig_f41514d_0` / `zig_03c4281_0` (szip added without a build-string
+change: a host dependency is no variant key; unpublished). kappa win-64:
+tests/smoke/libaec.c, hdf4.c (deflate and szip SDS) and hdf5.c (deflate,
+H5LT, long double; 16-byte long double) print OK; CRAN hdf5r 1.3.16
+installs (`-lhdf5_hl -lhdf5 -ladvapi32 -lz -lsz` from zig-libs) and passes
+deflate and szip round trips. hdf5r's H5P set_szip() passes one argument
+of the three R_H5Pset_szip takes (an hdf5r bug); tests/r/smoke.R calls the
+C entry point. Risk (I): HDF4 installs generic header names in
+zig-libs' include/ (types.h, xdr.h, atom.h, glist.h, linklist.h), as
+Rtools45's tree does (its XDR headers under include/rpc/); r-zig build 13
+turns `-I<zig-libs>/include` into -idirafter (D124 answer), so they
+cannot shadow a system header; a package's own quoted headers come first
+anyway.
+
+**S2-F34 V. zig-netcdf 4.9.2 (D126 B, D127 C; 2026-11-25, gamma and
+kappa).** CMake, MXE's options: netCDF-4 (hdf5), HDF4, DAP2, DAP4, szip
+(write too), NCZarr (file store, as Rtools45), CDF5; byte-range, S3,
+plugins, zstd/blosc filters off (filter plugins are DLLs netCDF never
+builds on MinGW); build.sh checks netcdf_meta.h. `-DDLLEXPORT=`: ncjson.h
+exported 15 NCJ* functions (pkgtest --no-dllexport). The
+`struct stat`/`_stat64` pointer mismatch in dpathmgr.c is safe only with
+`-D_FILE_OFFSET_BITS=64` (netCDF's CMake sets it on MinGW): build.sh
+checks the layout with a _Static_assert. netcdf.h must come before
+mfhdf.h (shared `_NETCDF_` guard). netcdf.pc: `Requires: hdf5_hl hdf5
+mfhdf libcurl libxml-2.0 zlib szip`, `-lnetcdf`. Builds: win-64
+`zig_9d08665_0`, win-arm64 `zig_a0b334e_0`; recipe tests pass. kappa
+win-64: tests/smoke/netcdf.c (netCDF-4 deflate and szip, CDF-1, CDF-5
+with int64, an HDF4 file written with SDwritedata and read with
+nc_get_var_int) prints OK; CRAN ncdf4 1.24 and RNetCDF 2.11-2 (with
+zig-udunits2) install from source through `pkg-config netcdf`; smoke.R
+hdf5r, ncdf4, RNetCDF 7/7. Remote DAP2 over HTTPS through zig-libcurl
+(Schannel), by hand: ncdf4 and RNetCDF read psl.noaa.gov's OPeNDAP
+sst.mnmean.nc. r-consumer adds hdf5r, ncdf4, RNetCDF; the cross job
+limit goes to 240 minutes (win-64 took 87 before the data stack).
