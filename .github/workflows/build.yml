@@ -151,8 +151,9 @@ jobs:
     runs-on: ubuntu-latest
     # all nine recipes for one subdir took 1150 s on a 16-core host (19 min;
     # GDAL alone 365 s); ubuntu-latest has 4 cores, so about 4x that, with
-    # headroom
-    timeout-minutes: 150
+    # headroom; with slice 2 (36 recipes) win-64 took 87 minutes before the
+    # data stack (run 45501637501)
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
@@ -337,12 +338,12 @@ jobs:
           - subdir: win-64
             runner: windows-latest
             sysdeps: cmake libboost-headers
-            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units gsl RPostgres png jpeg tiff webp systemfonts textshaping ragg xml2
+            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units gsl RPostgres png jpeg tiff webp systemfonts textshaping ragg xml2 hdf5r ncdf4 RNetCDF
             pgserver: "16.*"
           - subdir: win-arm64
             runner: windows-11-arm
             sysdeps: cmake libboost-headers
-            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units gsl RPostgres png jpeg tiff webp systemfonts textshaping ragg xml2
+            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units gsl RPostgres png jpeg tiff webp systemfonts textshaping ragg xml2 hdf5r ncdf4 RNetCDF
             pgserver: ""
     env:
       SUBDIR: ${{ matrix.subdir }}
@@ -354,8 +355,9 @@ jobs:
       # RPostgres: libpq, openssl; png, jpeg, tiff, webp, systemfonts,
       # textshaping, ragg: the text stack and its compression libraries,
       # D122; they come with the six named here; igraph, xml2: libxml2,
-      # with libiconv, zlib and xz, D125)
-      ZIG_LIBS: zig-gdal zig-geos zig-proj zig-onetbb zig-abseil zig-openssl zig-gmp zig-mpfr zig-glpk zig-nlopt zig-udunits2 zig-expat zig-gsl zig-libpq zig-libpng zig-libjpeg zig-libtiff zig-libwebp zig-freetype zig-harfbuzz zig-fribidi zig-libxml2
+      # with libiconv, zlib and xz, D125; hdf5r, ncdf4, RNetCDF: hdf5 and
+      # netcdf, which bring hdf4, libaec, libcurl, D126, D127)
+      ZIG_LIBS: zig-gdal zig-geos zig-proj zig-onetbb zig-abseil zig-openssl zig-gmp zig-mpfr zig-glpk zig-nlopt zig-udunits2 zig-expat zig-gsl zig-libpq zig-libpng zig-libjpeg zig-libtiff zig-libwebp zig-freetype zig-harfbuzz zig-fribidi zig-libxml2 zig-hdf5 zig-netcdf
     steps:
       - name: Defender exclusions
         shell: pwsh
