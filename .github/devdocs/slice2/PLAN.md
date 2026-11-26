@@ -82,6 +82,7 @@ per-library fallback, text below).
 | D126 | Data stack scope (D103's last item): Rtools45 has hdf5 1.12.1, netcdf 4.9.2, libcurl 8.18.0 | A parity, libcurl on zig-openssl; B parity, libcurl on Schannel (Windows TLS and CA store); C B plus a new zig-libaec (szip); D hdf5 and netcdf only, no libcurl (no DAP) | B, dated 2026-11-24 | no CA bundle to ship or point to; Windows' own TLS. Correction after the choice (the menu said Rtools45 has no libaec): its netcdf.pc links libsz.a (libaec's szip) and HDF4 (libmfhdf.a, libdf.a), only without a .pc; its libcurl has OpenSSL and Schannel, libssh2, nghttp2, libidn2, libpsl (probe-rtools/closedpc). B leaves out szip, HDF4, SFTP/SCP, HTTP/2, libpsl; IDN through Windows (WinIDN). Put to the user again for szip | user |
 | D127 | szip and HDF4 (corrects D126's menu: Rtools45's netcdf links libsz.a and HDF4) | A a new zig-libaec (szip) for hdf5 and netcdf; B D126 B as chosen, no szip; C szip and a new zig-hdf4, netcdf reading HDF4 files: full Rtools45 parity | C, dated 2026-11-24 | CRAN parity for netcdf; szip-compressed and HDF4 (MODIS-era) data read as on CRAN | user |
 | D128 | zig-libcurl imports `if_nametoindex` (iphlpapi); Rhtslib's Makevars.win hard-codes Rtools45's link list without `-liphlpapi` and fails to link on win-arm64 (S2-F35) | A zig-libcurl build 1 with `HAVE_IF_NAMETOINDEX` off (curl loads it from iphlpapi.dll at run time, its pre-Vista path), `-liphlpapi` out of libcurl.pc, published alone; B r-zig-pixi appends `-liphlpapi` to every Windows link; C leave Rhtslib on the Rtools45 tree | A, dated 2026-11-26 | zig-libcurl then needs the system libraries Rtools45's libcurl needs, so packages written against Rtools' link lists link unchanged; B is a global flag per mismatch and would hide the next one from stress; IPv6 zone names still resolve | user |
+| D129 | Build and test only what changed (D115's second half; user, 2026-11-26: "We still need to make CI capable of building and testing individual packages") | A the plan job renders every build-libs recipe and checks universe first (the D96 check at the start): new = build, published with the same recipe and test files = skip, published with others = fail (bump, R15); cross/test/r-consumer take the rest from universe; dispatch inputs `recipes` (force) and `full`; B A without the dispatch inputs; C a dispatch input only, PR runs keep building everything. Dependents: a) not rebuilt; b) rebuilt down the host-dependency graph | A and a), dated 2026-11-26 | a pull request that changes one recipe builds and tests that one (both subdirs: D17 alignment) in minutes instead of ~3 h; an early R15 failure instead of one at publish time; static archives do not embed their dependencies, and a variant pin a dependent uses changes its hash anyway | user |
 
 D104 in the user's words: "As soon as cross-compiling a library with
 autotools gets tricky, stop and switch that library to another path
@@ -949,3 +950,34 @@ only, same artifacts) found the 3 "published, same recipe", uploaded and
 verified 68/68; all 71 in repodata. Handover sent to the r-zig-pixi
 session the same day (names, subdirs, build strings, the LOCAL_SOFT and
 GLPK DllMain notes); r-zig-pixi stress on them: S2-F35, S2-F36.
+
+**S2-F38 V. Selecting recipes against universe (D129; 2026-11-26,
+gamma).** `rattler-build build --render-only` (0.80.2) gives each
+recipe's build string without building (about 2 s per recipe and
+subdir), so `<name>-<version>-<string>.conda` is known up front. A
+published package's info/recipe/ is a byte copy of its recipe directory
+(zig-hdf5: patch, awk script, both pregen/ H5Tinit.c files) plus
+rendered_recipe.yaml and variant_config.yaml, and its test files sit
+under `etc/conda/test-files/<name>/0/zig-libs-tests/` with sha256 in
+info/paths.json, so the repo can be compared with universe without a
+build. .github/scripts/plan-recipes.py (runner python3, stdlib, the
+system tar for zstd; not a pixi env's python, which could leak into
+CMake builds as in D78/D97) on fix-libcurl-iphlpapi: 70 files rendered
+and checked in 2 min 46 s, all "same recipe" except zig-libcurl build 1
+("new") -> builds zig-libcurl only. Negative checks: a line appended to
+recipes/zig-zlib/build.sh and to tests/smoke/proj.c gives "DIFFERS:
+recipe/build.sh" for zig-zlib and "DIFFERS: tests/smoke/proj.c" for
+zig-proj on both subdirs and exit 1; `--force zig-nope` exits 1 with
+"not in build-libs"; `--force zig-gsl` adds zig-gsl. A change to a
+shared test file (tests/pkgtest.zig) therefore asks for a build-number
+bump of every recipe that carries it, as the publish job's D96 check
+did at the end of a run. Not compared, as before: zig-toolchain (always
+built; its toolchain/ path source ships only as build output).
+build.yml: plan selects (`recipes`, `any` outputs; the `full-ci` label
+and the `full` dispatch input build all, the `recipes` input forces);
+cross builds the selection in build-libs order with `pixi run build`,
+whose channels are now the local one, universe, conda-forge; test adds
+universe; r-consumer checks that every zig-* package built in the run
+comes from the run's channel (the rest from universe); cross, test,
+r-consumer and alignment are skipped when nothing is selected, and
+publish then runs on skipped jobs too (only zig-toolchain can be new).
