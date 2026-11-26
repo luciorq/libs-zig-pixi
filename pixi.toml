@@ -34,13 +34,14 @@ description = "Build zig-toolchain for linux-64 into $LIBS_ZIG_OUT"
 cmd = "rattler-build build --recipe recipes/zig-toolchain -m variants.yaml --output-dir $LIBS_ZIG_OUT -c conda-forge --no-build-id"
 
 [tasks.build]
-description = "Build recipes/<recipe> for <subdir> (win-64 | win-arm64) against the local channel"
+description = "Build recipes/<recipe> for <subdir> (win-64 | win-arm64) against the local channel, then universe (zig-* dependencies not built locally, D129)"
 args = ["recipe", { arg = "subdir", default = "win-64" }]
-cmd = "rattler-build build --recipe recipes/{{ recipe }} --target-platform {{ subdir }} -m variants.yaml --output-dir $LIBS_ZIG_OUT -c file://$LIBS_ZIG_OUT -c conda-forge --no-build-id"
+cmd = "rattler-build build --recipe recipes/{{ recipe }} --target-platform {{ subdir }} -m variants.yaml --output-dir $LIBS_ZIG_OUT -c file://$LIBS_ZIG_OUT -c https://prefix.dev/universe -c conda-forge --no-build-id"
 
 # Every library recipe for one subdir, in dependency order: pixi runs
-# depends-on in the order listed. A new recipe is one line here. CI runs
-# this (build.yml), so the list lives only here. zig-openssl needs
+# depends-on in the order listed. A new recipe is one line here. CI
+# builds the recipes .github/scripts/plan-recipes.py selects, in this
+# order (D129), so the list lives only here. zig-openssl needs
 # zig-zlib; zig-proj zig-sqlite; zig-gdal zig-proj, zig-geos, zig-sqlite,
 # zig-expat and zig-zlib; zig-mpfr and zig-glpk need zig-gmp; zig-udunits2
 # zig-expat; zig-libpq zig-openssl; zig-libpng zig-zlib; zig-libtiff

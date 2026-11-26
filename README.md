@@ -37,13 +37,14 @@ Requires [pixi](https://pixi.sh) on linux-64. Windows packages are cross-built o
 
 ```sh
 pixi run build-toolchain          # zig-toolchain (linux-64), needed by every recipe
-pixi run build <pkg> <subdir>     # for example: pixi run build zig-zlib win-64
-pixi run build-libs <subdir>      # every library recipe, in dependency order (as CI)
+pixi run build <pkg> <subdir>     # for example: pixi run build zig-zlib win-64; other zig-* dependencies come from universe
+pixi run build-libs <subdir>      # every library recipe, in dependency order
+python3 .github/scripts/plan-recipes.py   # which recipes CI would build: the ones whose file is not on universe yet
 pixi run check-alignment          # one build number per package across subdirs
 pixi run smoke <modules> <sources> [<subdir>]   # keep smoke executables, e.g. pixi run smoke sqlite3 sqlite.c
 ```
 
-CI (`.github/workflows/build.yml`) runs the same tasks on linux and tests every package on `windows-latest` and `windows-11-arm`.
+CI (`.github/workflows/build.yml`) builds only the recipes whose package is not on universe yet, with the same tasks on linux, and tests them on `windows-latest` and `windows-11-arm`. A published package whose recipe or test files changed fails the run until its `build.number` is bumped. A manual run (`gh workflow run build.yml -f recipes="zig-libcurl"` or `-f full=true`) builds more.
 
 The exact task names and arguments are defined in `pixi.toml`. `zig-toolchain` is built first, into the local output channel, and every other recipe uses it. Set `RATTLER_CACHE_DIR` and `ZIG_GLOBAL_CACHE_DIR` to a disk with room; a GDAL build is large.
 

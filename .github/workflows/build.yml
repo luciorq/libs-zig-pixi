@@ -2,18 +2,29 @@ name: build
 
 # The CI of milestone M0 and slice 1 (DESIGN.md 9.1, .github/devdocs/m0/PLAN.md):
 #
-#   plan        the legs: default, plus upstream-zig when gated
+#   plan        the legs: default, plus upstream-zig when gated; and the
+#               library recipes this run builds (slice2 PLAN.md D129):
+#               .github/scripts/plan-recipes.py renders every recipe of
+#               pixi.toml's build-libs list and builds the ones whose file
+#               is not on universe; a published file with other recipe or
+#               test files fails the run (R15, the D96 check at the start).
+#               A dispatch can force recipes (`recipes`) or all (`full`);
+#               the `full-ci` label builds all
 #   toolchain   zig-toolchain for linux-64 into a local channel, per leg
-#   cross       every library recipe (zig-zlib ... zig-gdal, the build-libs
-#               list in pixi.toml) for win-64 and win-arm64 on linux
-#               (pixi run build-libs; its recipe tests run there too)
-#   test        each package's tests on windows-latest (win-64) and
+#   cross       the selected library recipes, in build-libs order, for
+#               win-64 and win-arm64 on linux (pixi run build; its recipe
+#               tests run there too); dependencies not built in the run
+#               come from universe
+#   test        each built package's tests on windows-latest (win-64) and
 #               windows-11-arm (win-arm64): rattler-build test
 #               --package-file, which links and runs the smoke executable
 #               natively with that subdir's conda-forge zig
 #   alignment   one build number per package across subdirs
 #   publish     the default leg's packages to prefix.dev universe (M5,
 #               PLAN.md D30), only on main with CONDA_PUBLISH set
+#
+# cross, test, r-consumer and alignment run only when plan selected at
+# least one recipe; publish then still uploads a new zig-toolchain.
 #
 # Each leg runs once per pixi environment: `default` (conda-forge zig, what
 # would be published) always; `upstream-zig` (PyPI ziglang through ZIG_BIN,
@@ -44,6 +55,14 @@ on:
     inputs:
       upstream_zig:
         description: Also build and test with upstream zig (PyPI ziglang via ZIG_BIN)
+        type: boolean
+        default: false
+      recipes:
+        description: Also build these recipes (space separated, e.g. zig-libcurl zig-netcdf), published or not
+        type: string
+        default: ""
+      full:
+        description: Build every library recipe
         type: boolean
         default: false
 
@@ -78,9 +97,13 @@ jobs:
       github.event.action != 'labeled' ||
       github.event.label.name == 'upstream-zig' || github.event.label.name == 'full-ci'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # rendering 35 recipes for 2 subdirs and fetching their published files
+    # took 3 minutes on gamma
+    timeout-minutes: 20
     outputs:
       envs: ${{ steps.legs.outputs.envs }}
+      recipes: ${{ steps.recipes.outputs.recipes }}
+      any: ${{ steps.recipes.outputs.any }}
     steps:
       - name: Legs (default; upstream-zig when gated)
         id: legs
@@ -96,6 +119,29 @@ jobs:
           else
             echo 'envs=["default"]' >> "$GITHUB_OUTPUT"
           fi
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          pixi-version: v0.84.2
+          environments: default
+          cache: true
+          cache-write: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
+      # the runner's python3 (stdlib only), not a pixi env's: a python in
+      # the build env could leak into CMake builds (D78, D97)
+      - name: Recipes to build (D129)
+        id: recipes
+        env:
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.recipes || '' }}
+          FULL: >-
+            ${{ (github.event_name == 'workflow_dispatch' && inputs.full) ||
+            (github.event_name == 'pull_request' &&
+            contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+        run: |
+          args=(--force "$FORCE")
+          [ "$FULL" = true ] && args+=(--full)
+          python3 -I .github/scripts/plan-recipes.py "${args[@]}"
 
   # One leg per env, so a failed upstream-zig build never hides the default
   # results and the other way round (D34 amendment, PLAN.md). The later
@@ -147,7 +193,7 @@ jobs:
     # a matrix job's result is the worst of its legs, so gate on plan, not
     # toolchain: a failed toolchain leg fails only its own env's legs (at
     # the artifact download)
-    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.any == 'true' }}
     runs-on: ubuntu-latest
     # all nine recipes for one subdir took 1150 s on a 16-core host (19 min;
     # GDAL alone 365 s); ubuntu-latest has 4 cores, so about 4x that, with
@@ -162,6 +208,7 @@ jobs:
     env:
       SUBDIR: ${{ matrix.subdir }}
       PIXI_ENV: ${{ matrix.env }}
+      RECIPES: ${{ needs.plan.outputs.recipes }}
       # one zig global cache for every recipe of the job (the target's C
       # runtime and libc++, built once; slice2 D115), passed to the build
       # scripts by each recipe's LIBS_ZIG_CACHE env.get
@@ -192,10 +239,16 @@ jobs:
         with:
           name: channel-linux-64-${{ matrix.env }}
           path: out/${{ matrix.env }}
-      # every library recipe, in dependency order (pixi.toml build-libs);
-      # rattler-build runs each recipe's tests after its build
+      # the recipes plan selected, in build-libs order (D129); the build
+      # task takes the other zig-* dependencies from universe. rattler-build
+      # runs each recipe's tests after its build
       - name: Build the libraries
-        run: pixi run --locked -e "$PIXI_ENV" build-libs "$SUBDIR" 2>&1 | tee build.log
+        run: |
+          for r in $RECIPES; do
+            echo "::group::$r"
+            pixi run --locked -e "$PIXI_ENV" build "$r" "$SUBDIR"
+            echo "::endgroup::"
+          done 2>&1 | tee build.log
       - uses: ./.github/actions/which-zig
         with:
           log: build.log
@@ -222,7 +275,7 @@ jobs:
     needs: [plan, cross]
     # !cancelled() and plan only: one failed toolchain or cross leg fails
     # only its own test leg (at the artifact download), not all of them
-    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.any == 'true' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 200
     strategy:
@@ -273,8 +326,9 @@ jobs:
       # pkgconf (and llvm-tools for the C++ libraries), which links the
       # smoke sources with `pkgconf --cflags --libs` of the installed
       # package and its zig-* dependencies (from the same channel) and runs
-      # them. Every package of the build-libs list (pixi.toml) is tested,
-      # also after a failure; the step fails if any did. The step timeout
+      # them; dependencies this run did not build come from universe.
+      # Every package this run built is tested, also after a failure; the
+      # step fails if any did. The step timeout
       # catches a hung process spawn (r-zig-pixi's windows-latest MSYS
       # flake).
       # 45 minutes ran out with 15 packages and a cold zig cache (slice2
@@ -289,7 +343,7 @@ jobs:
             n=$((n + 1))
             echo "::group::rattler-build test $f"
             if pixi exec --spec "rattler-build==$RATTLER_BUILD_VERSION" -- \
-              rattler-build test --package-file "$f" -c "$chan" -c conda-forge; then
+              rattler-build test --package-file "$f" -c "$chan" -c https://prefix.dev/universe -c conda-forge; then
               r=ok
             else
               r=FAIL failed+=("$f")
@@ -321,7 +375,7 @@ jobs:
   r-consumer:
     name: r-consumer ${{ matrix.subdir }}
     needs: [plan, cross]
-    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.any == 'true' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 150
     strategy:
@@ -397,10 +451,13 @@ jobs:
           cat "$ws/pixi.toml"
           pixi install --manifest-path "$ws/pixi.toml"
           pixi list --manifest-path "$ws/pixi.toml" | tee "$ws/list.txt"
-          # every zig-* library from this run's channel, none from universe
+          # every zig-* library this run built from this run's channel (the
+          # others from universe, D129)
+          built=$(for f in channel/"$SUBDIR"/*.conda; do basename "$f" | sed -E 's/-[^-]+-[^-]+\.conda$//'; done | jq -R . | jq -sc .)
+          echo "built in this run: $built"
           bad=$(pixi list --manifest-path "$ws/pixi.toml" --json |
-            jq -r --arg c "$chan" '.[] | select(.name | startswith("zig-")) | select((.source // "") != $c) | "\(.name) \(.build) \(.source)"')
-          if [ -n "$bad" ]; then echo "::error::zig-* not from this run's channel: $bad"; exit 1; fi
+            jq -r --arg c "$chan" --argjson b "$built" '.[] | select(.name as $n | $b | index($n)) | select((.source // "") != $c) | "\(.name) \(.build) \(.source)"')
+          if [ -n "$bad" ]; then echo "::error::zig-* built here but not taken from this run's channel: $bad"; exit 1; fi
           echo "MANIFEST=$ws/pixi.toml" >> "$GITHUB_ENV"
           # r-zig build 12 finds zig-libs itself (R_ZIG_LIBS, PKG_CONFIG_PATH
           # and PKG_CONFIG_LIBDIR, R_TOOLS_SOFT in its Rcmd_environ;
@@ -462,7 +519,7 @@ jobs:
   alignment:
     name: build-number alignment
     needs: [plan, cross]
-    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.any == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -495,16 +552,25 @@ jobs:
   # releases, so a merge without a build-number bump uploads nothing. For
   # a release: merge the bump, `gh variable set CONDA_PUBLISH --body true`,
   # dispatch this workflow on main, check universe, then
-  # `gh variable delete CONDA_PUBLISH`. No status function in `if`, so
-  # every job it needs must have succeeded (also a gated upstream-zig leg
-  # of a dispatch).
+  # `gh variable delete CONDA_PUBLISH`. Every job it needs must have
+  # succeeded (also a gated upstream-zig leg of a dispatch), or been
+  # skipped because plan selected no recipe (D129): then only
+  # zig-toolchain can be new.
   publish:
     name: publish to prefix.dev universe
-    needs: [toolchain, cross, test, r-consumer, alignment]
+    needs: [plan, toolchain, cross, test, r-consumer, alignment]
     if: >-
+      !cancelled() &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-      vars.CONDA_PUBLISH == 'true'
+      vars.CONDA_PUBLISH == 'true' &&
+      needs.plan.result == 'success' && needs.toolchain.result == 'success' &&
+      ((needs.plan.outputs.any == 'true' &&
+        needs.cross.result == 'success' && needs.test.result == 'success' &&
+        needs.r-consumer.result == 'success' && needs.alignment.result == 'success') ||
+       (needs.plan.outputs.any != 'true' &&
+        needs.cross.result == 'skipped' && needs.test.result == 'skipped' &&
+        needs.r-consumer.result == 'skipped' && needs.alignment.result == 'skipped'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -526,10 +592,12 @@ jobs:
           name: channel-linux-64-default
           path: channels/linux-64
       - uses: actions/download-artifact@v8.0.2
+        if: needs.plan.outputs.any == 'true'
         with:
           name: channel-win-64-default
           path: channels/win-64
       - uses: actions/download-artifact@v8.0.2
+        if: needs.plan.outputs.any == 'true'
         with:
           name: channel-win-arm64-default
           path: channels/win-arm64
@@ -540,8 +608,11 @@ jobs:
       # has no ZIG_BIN, the empty default is dropped), and its build_prefix
       # is under the leg's output dir, $LIBS_ZIG_OUT/bld for the default
       # leg. Also: only zig-toolchain for linux-64, at least one library
-      # per Windows subdir, index.json's subdir matches the directory.
+      # per Windows subdir when plan selected recipes (none otherwise,
+      # D129), index.json's subdir matches the directory.
       - name: Guard (default leg only, D29)
+        env:
+          ANY: ${{ needs.plan.outputs.any }}
         run: |
           : > publish.txt
           bad=0
@@ -577,7 +648,10 @@ jobs:
               fi
             done
             echo "$sd: $n package(s)"
-            [ "$n" -gt 0 ] || { echo "::error::no packages for $sd"; bad=1; }
+            case "$sd:$ANY" in
+              linux-64:*|win-*:true) [ "$n" -gt 0 ] || { echo "::error::no packages for $sd"; bad=1; } ;;
+              *) [ "$n" -eq 0 ] || { echo "::error::$sd packages although plan selected none"; bad=1; } ;;
+            esac
           done
           cat publish.txt
           [ "$bad" -eq 0 ]
