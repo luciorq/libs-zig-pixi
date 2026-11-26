@@ -58,6 +58,14 @@ they differ from this summary.
 - PROJ and GDAL embed their resource files, so they work without
   `PROJ_DATA` or `GDAL_DATA`; `share/` is for consumers that copy it
   (r-zig-pixi's `R_TOOLS_SOFT`, section 6).
+- zig-proj has no network access (`ENABLE_CURL=OFF`): with
+  `PROJ_NETWORK=ON` (conda-forge proj's activation sets it when
+  proj-data is missing) PROJ picks operations whose grids are on the
+  CDN and fails instead of falling back. Keep it off, or ship the grids
+  (slice2/PLAN.md S2-F36).
+- zig-libcurl needs only the system libraries Rtools45's libcurl needs
+  (no `-liphlpapi`), so packages that hard-code Rtools' link list (as
+  Rhtslib does) link it (slice2/PLAN.md D128, S2-F35).
 - No install prefix is compiled into the archives.
 - `libglpk.a` defines `DllMain` (GLPK's Windows code, as CRAN's Rtools45
   archive; slice2/PLAN.md S2-F12, D110): a DLL that links zig-glpk gets

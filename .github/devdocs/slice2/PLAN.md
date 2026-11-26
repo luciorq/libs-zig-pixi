@@ -81,6 +81,7 @@ per-library fallback, text below).
 | D125 | libxml2 2.12.10 scope (Rtools45: zlib, lzma, GNU libiconv) | A zlib and lzma only (built-in UTF-8/16, Latin-1, ASCII); B A plus a new zig-libiconv 1.17 (LGPL), Rtools45 parity; C ICU for encodings | B, dated 2026-11-24 | documents in any encoding parse (xml2, igraph); libiconv is a small autotools build; ICU is a large C++ build no R package here needs | user |
 | D126 | Data stack scope (D103's last item): Rtools45 has hdf5 1.12.1, netcdf 4.9.2, libcurl 8.18.0 | A parity, libcurl on zig-openssl; B parity, libcurl on Schannel (Windows TLS and CA store); C B plus a new zig-libaec (szip); D hdf5 and netcdf only, no libcurl (no DAP) | B, dated 2026-11-24 | no CA bundle to ship or point to; Windows' own TLS. Correction after the choice (the menu said Rtools45 has no libaec): its netcdf.pc links libsz.a (libaec's szip) and HDF4 (libmfhdf.a, libdf.a), only without a .pc; its libcurl has OpenSSL and Schannel, libssh2, nghttp2, libidn2, libpsl (probe-rtools/closedpc). B leaves out szip, HDF4, SFTP/SCP, HTTP/2, libpsl; IDN through Windows (WinIDN). Put to the user again for szip | user |
 | D127 | szip and HDF4 (corrects D126's menu: Rtools45's netcdf links libsz.a and HDF4) | A a new zig-libaec (szip) for hdf5 and netcdf; B D126 B as chosen, no szip; C szip and a new zig-hdf4, netcdf reading HDF4 files: full Rtools45 parity | C, dated 2026-11-24 | CRAN parity for netcdf; szip-compressed and HDF4 (MODIS-era) data read as on CRAN | user |
+| D128 | zig-libcurl imports `if_nametoindex` (iphlpapi); Rhtslib's Makevars.win hard-codes Rtools45's link list without `-liphlpapi` and fails to link on win-arm64 (S2-F35) | A zig-libcurl build 1 with `HAVE_IF_NAMETOINDEX` off (curl loads it from iphlpapi.dll at run time, its pre-Vista path), `-liphlpapi` out of libcurl.pc, published alone; B r-zig-pixi appends `-liphlpapi` to every Windows link; C leave Rhtslib on the Rtools45 tree | A, dated 2026-11-26 | zig-libcurl then needs the system libraries Rtools45's libcurl needs, so packages written against Rtools' link lists link unchanged; B is a global flag per mismatch and would hide the next one from stress; IPv6 zone names still resolve | user |
 
 D104 in the user's words: "As soon as cross-compiling a library with
 autotools gets tricky, stop and switch that library to another path
@@ -885,3 +886,66 @@ hdf5r, ncdf4, RNetCDF 7/7. Remote DAP2 over HTTPS through zig-libcurl
 (Schannel), by hand: ncdf4 and RNetCDF read psl.noaa.gov's OPeNDAP
 sst.mnmean.nc. r-consumer adds hdf5r, ncdf4, RNetCDF; the cross job
 limit goes to 240 minutes (win-64 took 87 before the data stack).
+
+**S2-F35 V. zig-libcurl needs `-liphlpapi`, Rtools45's libcurl does not
+(D128; 2026-11-26, r-zig-pixi stress, gamma and kappa).** r-zig-pixi
+stress 45714066676 (r-zig-pixi 21fee4e, lock 54e77c422af4),
+windows-11-arm with the Rtools45 tree: Rhtslib fails with `lld-link:
+error: undefined symbol: if_nametoindex`, referenced by
+`libcurl.a(url.c.obj):(zonefrom_url)`. Rhtslib's Makevars.win hard-codes
+Rtools45's list (`-lcurl -lsecur32 ... -lws2_32 -lzstd -lregex`, no
+`-liphlpapi`), and `-lcurl` now resolves to zig-libs (before slice 2, to
+the tree's libcurl, and Rhtslib and Rsamtools were ok). curl 8.18.0's
+CMake prefills `HAVE_IF_NAMETOINDEX=1` for MinGW targeting Vista or
+newer (CMakeLists.txt, `_CURL_PREFILL`, on for WIN32), with a normal
+variable that wins over `-DHAVE_IF_NAMETOINDEX=0` and unsets the cache
+entry. Without it, lib/system_win32.c loads `if_nametoindex` from
+iphlpapi.dll at run time (`Curl_if_nametoindex`), so IPv6 zone names
+keep working. Fix: `-D_CURL_PREFILL=OFF -DHAVE_IF_NAMETOINDEX=0`.
+curl_config.h on win-arm64 with and without the prefill differs in
+`HAVE_IF_NAMETOINDEX` only; the archive's undefined symbols lose
+`if_nametoindex` and gain `Curl_if_nametoindex` (internal),
+`__imp_LoadLibraryA`, `__imp_GetSystemDirectoryA`, `__imp_FreeLibrary`
+(kernel32). The published win-arm64 build 0 (rebuilt locally, the same
+build string) fails a smoke link without `-liphlpapi` with the same
+error; build 1 links. build.sh checks curl_config.h and deletes
+`-liphlpapi` from libcurl.pc, so pkgtest's smoke link (through the .pc)
+proves it on every run. Builds: win-64 `zig_38b206d_1`, win-arm64
+`zig_12f6e5a_1`; recipe tests pass on both. kappa win-64: the smoke
+linked without `-liphlpapi` prints OK (Schannel, a file:// download);
+`llvm-readobj --coff-imports` lists no IPHLPAPI.dll. On win-64, Rhtslib
+still fails earlier (`regex.h` not found) and on win-arm64 without the
+tree too: r-zig-pixi's, not a zig-* library.
+
+**S2-F36 V. `PROJ_NETWORK=ON` makes zig-proj fail grid transforms
+instead of falling back (2026-11-25, r-zig-pixi stress, their fix).**
+r-zig-pixi stress 45548386803 and 45662479912 (zig-proj build 0) and a
+kappa run with build 1: sf's `st_transform 4267 -> 32119` NA and
+gdalraster's `transform_xy` "transformation failed for all points" with
+`PROJ: Cannot open https://cdn.proj.org/us_noaa_WO.tif: Network
+functionality not available`, on Windows only. Cause: their Windows
+stress env also had conda-forge proj 9.9.0, whose activation script sets
+`PROJ_DATA` and, without proj-data installed, `PROJ_NETWORK=ON`; PROJ
+then picks the CDN grid operation, and zig-proj (`ENABLE_CURL=OFF`) has
+no network to fetch it. libs-zig-pixi's r-consumer (no conda-forge proj)
+passes the same checks. r-zig-pixi dropped conda-forge geos and proj
+from its Windows stress env (lock 54e77c422af4): libs smoke 21/21 on all
+six Windows legs (45714066676, 45714071892). CONTRACT.md 2 now says
+zig-proj has no network access.
+
+**S2-F37 V. The slice 2 publish (D118; 2026-11-25).** PR #8 merged (main
+8933e07, `[skip ci]`); publish preflight GO (OIDC, `CONDA_PUBLISH` was
+unset, lock e446db3). `gh workflow run build.yml --ref main`: run
+45603825536, tests 35/35 per subdir, r-consumer 22/22 installs, smoke
+66/66 (win-64) and 64/64 (win-arm64: no PostgreSQL server for the 2
+RPostgres server checks). The D96 check marked all 71 files new
+(zig-toolchain 0.2.0 linux-64, 35 libraries per Windows subdir: the 26
+new ones at build 0, the nine slice-1 ones at build 1). Attempt 1's
+upload stopped after 9 s with `error sending request for url
+(https://prefix.dev/api/v1/upload/universe)`, 3 files uploaded
+(zig-toolchain, win-64 zig-abseil and zig-brotli). The rerun first got
+HTTP 500 from GitHub (Actions partial outage); attempt 2 (publish job
+only, same artifacts) found the 3 "published, same recipe", uploaded and
+verified 68/68; all 71 in repodata. Handover sent to the r-zig-pixi
+session the same day (names, subdirs, build strings, the LOCAL_SOFT and
+GLPK DllMain notes); r-zig-pixi stress on them: S2-F35, S2-F36.

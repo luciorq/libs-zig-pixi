@@ -23,6 +23,13 @@ echo "zig-libcurl: ZIG_BIN='${zig_bin}' zig version: $v ($(command -v "${zig_bin
 # sub-prefix (the toolchain file's CMAKE_FIND_ROOT_PATH; curl leaves
 # pkg-config off when cross compiling). No curl tool, docs, man pages,
 # tests or examples.
+# if_nametoindex (slice2 D128, S2-F35): off, so curl loads it from
+# iphlpapi.dll at run time (Curl_if_nametoindex, its pre-Vista path) and
+# libcurl.a needs no -liphlpapi, as Rtools45's libcurl; R packages that
+# hard-code Rtools' link list (Rhtslib) link it. curl's Windows prefill
+# sets HAVE_IF_NAMETOINDEX=1 for MinGW over any -D, so _CURL_PREFILL is
+# off too and CMake runs the checks; curl_config.h differs from the
+# prefilled one in HAVE_IF_NAMETOINDEX only (checked on win-arm64).
 cmake -S . -B _build ${CMAKE_ARGS} \
   -DBUILD_STATIC_LIBS=ON \
   -DBUILD_CURL_EXE=OFF \
@@ -44,7 +51,11 @@ cmake -S . -B _build ${CMAKE_ARGS} \
   -DUSE_WIN32_LDAP=ON \
   -DCURL_ZLIB=ON \
   -DCURL_BROTLI=ON \
-  -DCURL_ZSTD=ON
+  -DCURL_ZSTD=ON \
+  -D_CURL_PREFILL=OFF \
+  -DHAVE_IF_NAMETOINDEX=0
+grep -q '^/\* #undef HAVE_IF_NAMETOINDEX \*/$' _build/lib/curl_config.h \
+  || { echo "zig-libcurl: HAVE_IF_NAMETOINDEX is set (D128)" >&2; exit 1; }
 cmake --build _build
 cmake --install _build
 
@@ -68,7 +79,13 @@ rmdir "$z/lib/cmake" 2>/dev/null || true
 # sure the public fields have what a static link needs.
 pcf="$z/lib/pkgconfig/libcurl.pc"
 sed -i -E '/^(Requires|Libs|Cflags)\.private:/d' "$pcf"
-for w in -DCURL_STATICLIB -lz -lzstd -lbrotlidec -lbrotlicommon -lbcrypt -ladvapi32 -lcrypt32 -lsecur32 -lnormaliz -lwldap32 -lws2_32 -liphlpapi; do
+# -liphlpapi goes too: curl's CMake lists it on every Windows build, but
+# nothing in libcurl.a imports from it any more (D128); pkgtest's smoke
+# links through this .pc, so it proves the link without iphlpapi.
+sed -i -E '/^Libs:/s/ -liphlpapi( |$)/\1/' "$pcf"
+! grep -q -- '-liphlpapi' "$pcf" \
+  || { echo "zig-libcurl: -liphlpapi left in libcurl.pc:" >&2; cat "$pcf" >&2; exit 1; }
+for w in -DCURL_STATICLIB -lz -lzstd -lbrotlidec -lbrotlicommon -lbcrypt -ladvapi32 -lcrypt32 -lsecur32 -lnormaliz -lwldap32 -lws2_32; do
   grep -E "^(Cflags|Libs):.* ${w}( |$)" "$pcf" >/dev/null \
     || { echo "zig-libcurl: '${w}' missing from libcurl.pc:" >&2; cat "$pcf" >&2; exit 1; }
 done
