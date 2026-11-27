@@ -1,13 +1,15 @@
 # zig-libcurl: libcurl, static only, for Windows (win-64, win-arm64),
 # cross-built on linux with zig-toolchain through curl's own CMake build
 # (D1), with Rtools45's TLS choice (slice2 D126 B): Schannel and Windows'
-# certificate store (no OpenSSL, no CA bundle), zlib, zstd and brotli from
-# their zig-* packages in the host env, IDN through Windows (WinIDN) and
-# LDAP through wldap32. No libssh2, nghttp2, libpsl or libidn2; no curl
-# tool, no docs. Installed under the private sub-prefix
+# certificate store (no OpenSSL TLS, no CA bundle), zlib, zstd and brotli,
+# and Rtools45's other features (slice3 D130): SFTP/SCP (libssh2 on
+# zig-openssl's libcrypto), HTTP/2 (nghttp2), IDN (libidn2) and the
+# public suffix list (libpsl), each from its zig-* package in the host
+# env; LDAP through wldap32. No curl tool, no docs. Installed under the private sub-prefix
 # Library/zig-libs/<zig triple>/ (D2): lib/libcurl.a, include/curl/,
 # lib/pkgconfig/libcurl.pc (closed, relocatable, -DCURL_STATICLIB in
-# Cflags, Requires: zlib libbrotlidec libbrotlicommon libzstd),
+# Cflags, Requires: zlib libbrotlidec libbrotlicommon libzstd libssh2
+# libnghttp2 libidn2 libpsl),
 # licenses/libcurl/.
 context:
   version: ${{ libcurl_version }}
@@ -28,7 +30,7 @@ source:
     target_directory: zig-libs-tests
 
 build:
-  number: 1
+  number: 2
   string: zig_${{ hash }}_${{ build_number }}
   script:
     file: build.sh
@@ -50,10 +52,21 @@ requirements:
     # exact: puts cmake and ninja in the hash (variants.yaml)
     - cmake ==${{ cmake }}
     - ninja ==${{ ninja }}
+    # llvm-nm: the dllimport check after the build; exact (variants.yaml)
+    - llvm-tools ==${{ llvm_tools }}
   host:
     - zig-zlib
     - zig-zstd
     - zig-brotli
+    - zig-libssh2
+    - zig-nghttp2
+    - zig-libidn2
+    - zig-libpsl
+    # their dependencies' .pc files (libssh2: libcrypto; libidn2, libpsl:
+    # libunistring, iconv), which libcurl.pc's closure reads
+    - zig-openssl
+    - zig-libunistring
+    - zig-libiconv
   run_exports:
     weak:
       # libcurl keeps its ABI within a major version (soname 4 since 7.16)
@@ -83,8 +96,10 @@ tests:
           - ${{ sub }}/share/**
           - ${{ sub }}/lib/cmake/**
   # tests/pkgtest.zig (its header says what it checks): libcurl.pc pulls
-  # zlib.pc, libzstd.pc and libbrotlidec.pc through Requires (--require
-  # -l<n> for each); the relocated .pc resolves to existing paths, no
+  # zlib.pc, libzstd.pc, libbrotlidec.pc, libssh2.pc (and its
+  # libcrypto.pc), libnghttp2.pc, libidn2.pc (and libunistring, iconv) and
+  # libpsl.pc through Requires (--require for each, and their static
+  # -D); the relocated .pc resolves to existing paths, no
   # absolute prefix in it, no build path in the archives, no C symbol
   # defined in two archives of the closure, no dllexport directive, and
   # tests/smoke/libcurl.c links (and runs, on Windows of the same arch:
@@ -92,7 +107,7 @@ tests:
   # and a file:// download into memory; no network). One plain command for
   # bash (linux) and cmd.exe (Windows).
   - script:
-      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -lz --require -lzstd --require -lbrotlidec ${{ zt }} libcurl zig-libs-tests/smoke/libcurl.c
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -lz --require -lzstd --require -lbrotlidec --require -lssh2 --require -lcrypto --require -lnghttp2 --require -lidn2 --require -lunistring --require -liconv --require -lpsl --require -DNGHTTP2_STATICLIB --require -DPSL_STATIC ${{ zt }} libcurl zig-libs-tests/smoke/libcurl.c
     files:
       source:
         - zig-libs-tests/pkgtest.zig

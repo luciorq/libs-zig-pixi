@@ -1,0 +1,24 @@
+Do not define PROTOBUF_DESCRIPTOR_WEAK_MESSAGES_ALLOWED on Windows
+
+protobuf 29.5 turns weak descriptor messages on for every clang that is
+not Apple's or MSVC's, which includes clang (zig) targeting MinGW. Its
+InitWeakDefaults then needs the ELF linker's __start_pb_defaults and
+__stop_pb_defaults section symbols, which COFF linkers (lld-link) do not
+provide: protoc.exe and every program linking libprotobuf.a fail with
+"undefined symbol: __start_pb_defaults". Upstream's fix, backported
+unchanged: protocolbuffers/protobuf commit 5769732ec0 ("Fix linker
+errors on Windows with clang", #20025, fixes #16844), in v31.0. The
+header is installed, so code compiled against the package sees the same
+guard.
+
+--- a/src/google/protobuf/port_def.inc
++++ b/src/google/protobuf/port_def.inc
+@@ -652,7 +652,7 @@
+ #error PROTOBUF_DESCRIPTOR_WEAK_MESSAGES_ALLOWED was previously defined
+ #endif
+ #if defined(__GNUC__) && defined(__clang__) && !defined(__APPLE__) && \
+-    !defined(_MSC_VER)
++    !defined(_MSC_VER) && !defined(_WIN32)
+ #define PROTOBUF_DESCRIPTOR_WEAK_MESSAGES_ALLOWED
+ #endif
+ 

@@ -1,0 +1,114 @@
+# zig-libidn2: GNU libidn2 (IDNA2008 / UTS#46), static only, for Windows
+# (win-64, win-arm64), cross-built on linux with zig-toolchain through
+# libidn2's own autotools configure (D1), run by `zig-toolchain configure`
+# (slice2 D104), on zig-libunistring and zig-libiconv; for zig-libcurl's IDN
+# and zig-libpsl, as Rtools45 (slice3 D130). The library only: no idn2
+# program, no translations, no docs or man pages. Installed under the
+# private sub-prefix Library/zig-libs/<zig triple>/ (D2): lib/libidn2.a,
+# include/idn2.h, lib/pkgconfig/libidn2.pc (closed, relocatable, Requires
+# libunistring), licenses/libidn2/.
+context:
+  version: ${{ libidn2_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-libidn2
+  version: ${{ version }}
+
+source:
+  # sha256 as computed on download; the tarball's GPG signature
+  # (libidn2-2.3.8.tar.gz.sig) verifies with Simon Josefsson's key
+  # A3CC9C870B9D310ABAD4CF2F51722B08FE4745A2 (gnu-keyring.gpg)
+  - url: https://ftp.gnu.org/gnu/libidn/libidn2-${{ version }}.tar.gz
+    sha256: f557911bf6171621e1f72ff35f5b1825bb35b52ed45325dcdee931e5d3c0787a
+  # the package test (tests/pkgtest.zig, tests/smoke/libidn2.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # configure and make; exact: puts make and llvm_tools in the hash
+    # (variants.yaml). llvm-nm is configure's NM (zig-toolchain configure).
+    - make ==${{ make }}
+    - llvm-tools ==${{ llvm_tools }}
+  host:
+    - zig-libunistring
+    - zig-libiconv
+  run_exports:
+    weak:
+      # libidn2.so.0 since 2.0
+      - ${{ pin_subpackage("zig-libidn2", upper_bound="x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libidn2.a
+          - ${{ sub }}/include/idn2.h
+          - ${{ sub }}/lib/pkgconfig/libidn2.pc
+          - ${{ sub }}/licenses/libidn2/COPYING.LESSERv3
+          - ${{ sub }}/licenses/libidn2/COPYINGv2
+          - ${{ sub }}/licenses/libidn2/COPYING.unicode
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library; no libtool archive, no idn2 program, no translations,
+        # no man or info pages
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.la"
+          - "**/*.exe"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/share/**
+  # tests/pkgtest.zig (its header says what it checks): libidn2.pc pulls
+  # libunistring.pc and iconv.pc through Requires (--require -l<n> for
+  # each); the relocated .pc resolves to existing paths, no absolute prefix
+  # in it, no build path in the archives, no C symbol in two archives of
+  # the closure, no dllexport directive, and tests/smoke/libidn2.c links
+  # (and runs, on Windows of the same arch: IDNA2008 to and from ASCII,
+  # UTS#46 mapping, a disallowed code point). One plain command for bash
+  # (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -lidn2 --require -lunistring --require -liconv ${{ zt }} libidn2 zig-libs-tests/smoke/libidn2.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/libidn2.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://www.gnu.org/software/libidn/#libidn2
+  # the library is "GPLv2+ or LGPLv3+" (README.md); its Unicode data
+  # tables are under COPYING.unicode. COPYING (GPL-3.0) covers the idn2
+  # program and tests, not in this package.
+  license: (GPL-2.0-or-later OR LGPL-3.0-or-later) AND Unicode-TOU
+  license_file:
+    - COPYING.LESSERv3
+    - COPYINGv2
+    - COPYING.unicode
+  summary: GNU libidn2 (internationalized domain names, IDNA2008), static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://gitlab.com/libidn/libidn2

@@ -1,9 +1,10 @@
 # Smoke test of the R packages that link the zig-* libraries (DESIGN 9.2,
 # M4; slice 2 adds gmp, Rmpfr, igraph, nloptr, units, gsl, RPostgres and
 # the text stack's png, jpeg, tiff, webp, systemfonts, textshaping, ragg,
-# xml2, and the data stack's hdf5r, ncdf4, RNetCDF): sf, terra, gdalraster,
-# s2, gmp, Rmpfr, igraph, nloptr, units, gsl, RPostgres, png, jpeg, tiff,
-# webp, systemfonts, textshaping, ragg, xml2, hdf5r, ncdf4, RNetCDF.
+# xml2, and the data stack's hdf5r, ncdf4, RNetCDF; slice 3 protobuf's
+# protolite and RProtoBuf): sf, terra, gdalraster, s2, gmp, Rmpfr, igraph,
+# nloptr, units, gsl, RPostgres, png, jpeg, tiff, webp, systemfonts,
+# textshaping, ragg, xml2, hdf5r, ncdf4, RNetCDF, protolite, RProtoBuf.
 # RPostgres' query checks need a server: R_SMOKE_PG names one as libpq
 # connection keywords (e.g. "host=127.0.0.1 port=5432 user=postgres
 # dbname=postgres"); without it they are left out. Run it with the R that
@@ -14,7 +15,8 @@
 # 2026-11-22 (r-zig-pixi feat-zig-libs PLAN.md).
 args <- commandArgs(trailingOnly = TRUE)
 pkgs <- if (length(args)) args else c("sf", "terra", "gdalraster", "s2", "gmp", "Rmpfr", "igraph", "nloptr", "units", "gsl", "RPostgres",
-                                         "png", "jpeg", "tiff", "webp", "systemfonts", "textshaping", "ragg", "xml2", "hdf5r", "ncdf4", "RNetCDF")
+                                         "png", "jpeg", "tiff", "webp", "systemfonts", "textshaping", "ragg", "xml2", "hdf5r", "ncdf4", "RNetCDF",
+                                         "protolite", "RProtoBuf")
 
 res <- character()
 chk <- function(name, expr) {
@@ -418,6 +420,26 @@ if ("RNetCDF" %in% pkgs) {
       nc <- RNetCDF::open.nc(f); r <- RNetCDF::var.get.nc(nc, "v"); RNetCDF::close.nc(nc)
       isTRUE(all.equal(as.numeric(r), as.numeric(x)))
     })
+  })
+}
+if ("protolite" %in% pkgs) {
+  # protolite compiles its .proto files with zig-protobuf's protoc at
+  # install time (-DUSENEWAPI), so a round trip checks protoc and
+  # libprotobuf together
+  chk("protolite: serialize_pb/unserialize_pb round trip", {
+    x <- list(a = 1:3, b = "zig-libs", c = c(1.5, NA), d = list(e = TRUE))
+    identical(protolite::unserialize_pb(protolite::serialize_pb(x)), x)
+  })
+}
+if ("RProtoBuf" %in% pkgs) {
+  # tutorial.Person: RProtoBuf's own addressbook.proto, read at load;
+  # GOOGLE_PROTOBUF_VERSION of protobuf 29.5 is 5029005 (C++ 5.29.5)
+  chk("RProtoBuf: libprotobuf 29.5 and a message round trip", {
+    d <- RProtoBuf::P("tutorial.Person")
+    p <- RProtoBuf::new(d, name = "zig", id = 42L, email = "z@example.org")
+    q <- RProtoBuf::read(d, RProtoBuf::serialize(p, NULL))
+    v <- RProtoBuf:::getProtobufLibVersion()
+    if (q$name == "zig" && q$id == 42L && v == 5029005L) TRUE else c(q$name, q$id, v)
   })
 }
 

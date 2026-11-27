@@ -1,0 +1,97 @@
+# zig-libgnurx: libgnurx (glibc's POSIX regex for MinGW), static only, for
+# Windows (win-64, win-arm64), cross-built on linux with zig-toolchain, as
+# Rtools45's base tarball ships it (MXE's libgnurx.mk; slice3 D131,
+# r-zig-pixi's request for Rhtslib: htslib's hts_expr.c includes
+# <regex.h>, which zig's MinGW headers lack). regex.c compiled directly.
+# Installed under the private sub-prefix Library/zig-libs/<zig triple>/
+# (D2): include/regex.h (byte for byte Rtools45's), lib/libregex.a and the
+# same archive as lib/libgnurx.a (both names Rtools45 has),
+# lib/pkgconfig/regex.pc (closed, relocatable), licenses/libgnurx/.
+context:
+  # Rtools45 build 6768 (D9), variants.yaml
+  version: ${{ libgnurx_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-libgnurx
+  version: ${{ version }}
+
+source:
+  # MXE's URL and checksum (src/libgnurx.mk): the SourceForge MinGW
+  # tarball, mirrored as a GitHub release asset
+  - url: https://github.com/TimothyGu/libgnurx/releases/download/libgnurx-${{ version }}/mingw-libgnurx-${{ version }}-src.tar.gz
+    sha256: ee6edc110c6b63d0469f4f05ef187564b310cc8a88b6566310a4aebd48b612c7
+  # the package test (tests/pkgtest.zig, tests/smoke/libgnurx.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+  run_exports:
+    weak:
+      # the POSIX regex API; libgnurx's last release (2.6.1, 2013)
+      - ${{ pin_subpackage("zig-libgnurx", upper_bound="x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libregex.a
+          - ${{ sub }}/lib/libgnurx.a
+          - ${{ sub }}/include/regex.h
+          - ${{ sub }}/lib/pkgconfig/regex.pc
+          - ${{ sub }}/licenses/libgnurx/COPYING.LIB
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library (gnurx.lib)
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.la"
+          - "**/*.exe"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/share/**
+  # tests/pkgtest.zig (its header says what it checks): the relocated .pc
+  # resolves to existing paths, no absolute prefix in it, no build path in
+  # libregex.a, no C symbol in two archives of the closure, no dllexport
+  # directive, and tests/smoke/libgnurx.c links (and runs, on Windows of
+  # the same arch: regcomp/regexec with submatches, REG_ICASE, REG_NOMATCH,
+  # regerror). One plain command for bash (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -lregex ${{ zt }} regex zig-libs-tests/smoke/libgnurx.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/libgnurx.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://sourceforge.net/projects/mingw/files/UserContributed/regex/
+  license: LGPL-2.1-or-later
+  license_file: COPYING.LIB
+  summary: libgnurx (POSIX regex from glibc for MinGW), static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/TimothyGu/libgnurx

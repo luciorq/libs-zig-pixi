@@ -1,0 +1,32 @@
+utf8_validity links utf8_range instead of compiling its own copy
+
+protobuf 29.5 compiles utf8_range.c into both libutf8_range.a and
+libutf8_validity.a, so the static closure of protobuf.pc defines
+utf8_range_IsValid and utf8_range_ValidPrefix in two archives (the zig-*
+package test's --unique-c-symbols check, DESIGN 6.5). The copies are the
+same source, but an archive that defines another archive's symbols is
+the clash the check exists for. libutf8_validity.a keeps utf8_validity.cc
+(the C++ wrapper) and links libutf8_range.a for the C code; utf8_range.pc
+already names both (-lutf8_validity -lutf8_range), in that order, as
+Rtools45's protobuf.pc does.
+
+--- a/third_party/utf8_range/CMakeLists.txt
++++ b/third_party/utf8_range/CMakeLists.txt
+@@ -17,7 +17,7 @@
+ 
+ ##
+ # A heavier-weight C++ wrapper that supports Abseil.
+-add_library (utf8_validity utf8_validity.cc utf8_range.c)
++add_library (utf8_validity utf8_validity.cc)
+ 
+ # Load Abseil dependency.
+ if (NOT TARGET absl::strings)
+@@ -29,7 +29,7 @@
+     add_subdirectory(${ABSL_ROOT_DIR} third_party/abseil-cpp)
+   endif ()
+ endif ()
+-target_link_libraries(utf8_validity PUBLIC absl::strings)
++target_link_libraries(utf8_validity PUBLIC utf8_range absl::strings)
+ 
+ # Configure tests.
+ if (utf8_range_ENABLE_TESTS)

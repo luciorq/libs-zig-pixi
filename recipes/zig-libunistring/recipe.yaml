@@ -1,0 +1,112 @@
+# zig-libunistring: GNU libunistring, static only, for Windows (win-64,
+# win-arm64), cross-built on linux with zig-toolchain through
+# libunistring's own autotools configure (D1), run by `zig-toolchain
+# configure` (slice2 D104); for zig-libidn2 and zig-libpsl, so zig-libcurl
+# has Rtools45's IDN (slice3 D130). The library only: no docs, no tests.
+# Installed under the private sub-prefix Library/zig-libs/<zig triple>/
+# (D2): lib/libunistring.a, include/uni*.h, include/unistring/,
+# lib/pkgconfig/libunistring.pc (written by the recipe: upstream ships
+# none; Requires iconv; closed, relocatable), licenses/libunistring/.
+context:
+  version: ${{ libunistring_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-libunistring
+  version: ${{ version }}
+
+source:
+  # sha256 as computed on download; the tarball's GPG signature
+  # (libunistring-1.4.1.tar.gz.sig) verifies with Bruno Haible's key
+  # E0FFBD975397F77A32AB76ECB6301D9E1BBEAC08 (gnu-keyring.gpg)
+  - url: https://ftp.gnu.org/gnu/libunistring/libunistring-${{ version }}.tar.gz
+    sha256: 12542ad7619470efd95a623174dcd4b364f2483caf708c6bee837cb53a54cb9d
+  # the package test (tests/pkgtest.zig, tests/smoke/libunistring.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # configure and make; exact: puts make and llvm_tools in the hash
+    # (variants.yaml). llvm-nm is configure's NM (zig-toolchain configure).
+    - make ==${{ make }}
+    - llvm-tools ==${{ llvm_tools }}
+  host:
+    - zig-libiconv
+  run_exports:
+    weak:
+      # libunistring.so.5 since 1.0; minor releases keep the ABI
+      - ${{ pin_subpackage("zig-libunistring", upper_bound="x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libunistring.a
+          - ${{ sub }}/include/unistr.h
+          - ${{ sub }}/include/uninorm.h
+          - ${{ sub }}/include/unicase.h
+          - ${{ sub }}/include/unistring/version.h
+          - ${{ sub }}/lib/pkgconfig/libunistring.pc
+          - ${{ sub }}/licenses/libunistring/COPYING
+          - ${{ sub }}/licenses/libunistring/COPYING.LIB
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library; no libtool archive, no docs
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.la"
+          - "**/*.exe"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/share/**
+  # tests/pkgtest.zig (its header says what it checks): libunistring.pc
+  # pulls iconv.pc through Requires (--require -liconv); the relocated .pc
+  # resolves to existing paths, no absolute prefix in it, no build path in
+  # the archives, no C symbol in two archives of the closure, no dllexport
+  # directive, and tests/smoke/libunistring.c links (and runs, on Windows
+  # of the same arch: UTF-8 checks, case folding, NFC/NFD and the iconv
+  # bridge, byte for byte). One plain command for bash (linux) and cmd.exe
+  # (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -lunistring --require -liconv ${{ zt }} libunistring zig-libs-tests/smoke/libunistring.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/libunistring.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://www.gnu.org/software/libunistring/
+  # "LGPLv3+ or GPLv2+" (README): COPYING.LIB is the LGPL-3.0, COPYING the
+  # GPL-3.0 text the LGPL builds on
+  license: LGPL-3.0-or-later OR GPL-2.0-or-later
+  license_file:
+    - COPYING
+    - COPYING.LIB
+  summary: GNU libunistring (Unicode strings), static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://git.savannah.gnu.org/git/libunistring.git

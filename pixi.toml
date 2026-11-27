@@ -49,7 +49,10 @@ cmd = "rattler-build build --recipe recipes/{{ recipe }} --target-platform {{ su
 # zig-freetype zig-zlib, zig-libpng, zig-bzip2, zig-brotli; zig-harfbuzz
 # zig-freetype; zig-libxml2 zig-zlib, zig-xz, zig-libiconv; zig-hdf4
 # zig-zlib, zig-libjpeg, zig-libaec; zig-hdf5 zig-zlib, zig-libaec;
-# zig-libcurl zig-zlib, zig-zstd, zig-brotli; zig-netcdf zig-hdf5,
+# zig-libssh2 zig-openssl, zig-zlib; zig-libidn2 zig-libunistring,
+# zig-libiconv; zig-libpsl zig-libidn2, zig-libunistring, zig-libiconv;
+# zig-libcurl zig-zlib, zig-zstd, zig-brotli, zig-nghttp2, zig-libssh2,
+# zig-libidn2, zig-libpsl; zig-protobuf zig-abseil; zig-netcdf zig-hdf5,
 # zig-hdf4, zig-libcurl, zig-libxml2, zig-libaec, zig-zlib, zig-libjpeg (their host
 # requirements).
 [tasks.build-libs]
@@ -89,8 +92,15 @@ depends-on = [
   { task = "build", args = ["zig-libaec", "{{ subdir }}"] },
   { task = "build", args = ["zig-hdf4", "{{ subdir }}"] },
   { task = "build", args = ["zig-hdf5", "{{ subdir }}"] },
+  { task = "build", args = ["zig-nghttp2", "{{ subdir }}"] },
+  { task = "build", args = ["zig-libssh2", "{{ subdir }}"] },
+  { task = "build", args = ["zig-libunistring", "{{ subdir }}"] },
+  { task = "build", args = ["zig-libidn2", "{{ subdir }}"] },
+  { task = "build", args = ["zig-libpsl", "{{ subdir }}"] },
   { task = "build", args = ["zig-libcurl", "{{ subdir }}"] },
   { task = "build", args = ["zig-netcdf", "{{ subdir }}"] },
+  { task = "build", args = ["zig-libgnurx", "{{ subdir }}"] },
+  { task = "build", args = ["zig-protobuf", "{{ subdir }}"] },
 ]
 
 # One build number per package across subdirs (D17, CONVENTIONS.md). The

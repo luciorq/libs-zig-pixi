@@ -29,7 +29,12 @@ they differ from this summary.
   stack (D126 B, D127 C): zig-hdf5 1.12.1 (hdf5.pc, hdf5_hl.pc, szip),
   zig-netcdf 4.9.2 (netCDF-4, HDF4, DAP2/DAP4, szip, NCZarr file store),
   zig-libcurl 8.18.0 (Schannel, Windows' CA store), zig-hdf4 4.2.15
-  (df.pc, mfhdf.pc), zig-libaec 1.0.6 (szip.pc, libaec.pc).
+  (df.pc, mfhdf.pc), zig-libaec 1.0.6 (szip.pc, libaec.pc); from slice 3
+  (slice3/PLAN.md) zig-libcurl's dependencies zig-libssh2 1.11.1,
+  zig-nghttp2 1.68.0, zig-libidn2 2.3.8, zig-libunistring 1.4.1,
+  zig-libpsl 0.21.5 (D130), zig-libgnurx 2.6.1 (regex.pc, D131) and
+  zig-protobuf 29.5 (protobuf.pc, protobuf-lite.pc, utf8_range.pc, with
+  protoc.exe; D132).
   `zig-toolchain`
   (linux-64) is the build tool, not for consumers.
 - Only published builds are part of the contract. A consumer never
@@ -46,7 +51,8 @@ they differ from this summary.
   `aarch64-windows-gnu` (win-arm64) (CONVENTIONS.md; recipes'
   `sub: Library/zig-libs/${{ zt }}`; toolchain/src/target.zig).
 - `include/`; `lib/lib<n>.a` only: every recipe test asserts no `.dll`,
-  `.dll.a` or `.lib`; build scripts remove `.exe`, `bin/` and GDAL's
+  `.dll.a` or `.lib`; build scripts remove `.exe` (except zig-protobuf's
+  protoc, below), `bin/` and GDAL's
   plugin directory, asserted in zig-gdal (all), zig-proj (`.exe`) and
   zig-openssl (`.exe`, `bin/`); `lib/pkgconfig/*.pc`;
   `lib/cmake/` where upstream installs one (abseil, expat, GEOS, oneTBB;
@@ -65,7 +71,24 @@ they differ from this summary.
   (slice2/PLAN.md S2-F36).
 - zig-libcurl needs only the system libraries Rtools45's libcurl needs
   (no `-liphlpapi`), so packages that hard-code Rtools' link list (as
-  Rhtslib does) link it (slice2/PLAN.md D128, S2-F35).
+  Rhtslib does) link it (slice2/PLAN.md D128, S2-F35). Since build 2
+  it has Rtools45's features (slice3/PLAN.md D130): SFTP/SCP through
+  zig-libssh2 (on zig-openssl's libcrypto, not Rtools45's libgcrypt, so
+  `-lgcrypt -lgpg-error` do not resolve), HTTP/2 through zig-nghttp2,
+  IDN through zig-libidn2 (on zig-libunistring, zig-libiconv) and the
+  public suffix list through zig-libpsl; TLS stays Schannel.
+  `pkg-config --libs libcurl` gives the whole static closure.
+- zig-protobuf ships `bin/protoc.exe` (native per arch; the one
+  executable a consumer runs; the package also has protobuf's
+  `protoc-gen-upb*.exe` plugins, slice3/PLAN.md D132) next to
+  libprotobuf, libprotobuf-lite, libprotoc, libutf8_range,
+  libutf8_validity and upb; `protoc --version` prints `libprotoc 29.5`.
+  Consumers put `<envdir>/zig-libs/<triple>/bin` on PATH for it (R CMD,
+  r-zig-pixi build 14). Its CMake config also imports the
+  `protoc-gen-upb*` plugins in the same `bin/`.
+- zig-libgnurx ships MXE's GNU regex as Rtools45 does: `include/regex.h`,
+  `lib/libregex.a` and the same archive as `lib/libgnurx.a`, `regex.pc`
+  (slice3/PLAN.md D131).
 - No install prefix is compiled into the archives.
 - `libglpk.a` defines `DllMain` (GLPK's Windows code, as CRAN's Rtools45
   archive; slice2/PLAN.md S2-F12, D110): a DLL that links zig-glpk gets

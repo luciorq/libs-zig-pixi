@@ -371,7 +371,9 @@ jobs:
   #
   # Required since r-zig build 12 (universe, 2026-11-24; slice2 PLAN.md
   # D116): its Rcmd_environ points R at zig-libs (CONTRACT.md 6), so the
-  # build-11 emulation of D114 is gone. r-zig-slim/toolchain pinned *_12.
+  # build-11 emulation of D114 is gone. r-zig-slim/toolchain pinned *_13:
+  # build 13 (2026-11-26) sets LOCAL_SOFT to zig-libs itself, so the D124
+  # workaround is gone (slice3 PLAN.md D133).
   r-consumer:
     name: r-consumer ${{ matrix.subdir }}
     needs: [plan, cross]
@@ -392,12 +394,12 @@ jobs:
           - subdir: win-64
             runner: windows-latest
             sysdeps: cmake libboost-headers
-            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units gsl RPostgres png jpeg tiff webp systemfonts textshaping ragg xml2 hdf5r ncdf4 RNetCDF
+            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units gsl RPostgres png jpeg tiff webp systemfonts textshaping ragg xml2 hdf5r ncdf4 RNetCDF protolite RProtoBuf
             pgserver: "16.*"
           - subdir: win-arm64
             runner: windows-11-arm
             sysdeps: cmake libboost-headers
-            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units gsl RPostgres png jpeg tiff webp systemfonts textshaping ragg xml2 hdf5r ncdf4 RNetCDF
+            packages: sf terra gdalraster s2 gmp Rmpfr igraph nloptr units gsl RPostgres png jpeg tiff webp systemfonts textshaping ragg xml2 hdf5r ncdf4 RNetCDF protolite RProtoBuf
             pgserver: ""
     env:
       SUBDIR: ${{ matrix.subdir }}
@@ -410,8 +412,10 @@ jobs:
       # textshaping, ragg: the text stack and its compression libraries,
       # D122; they come with the six named here; igraph, xml2: libxml2,
       # with libiconv, zlib and xz, D125; hdf5r, ncdf4, RNetCDF: hdf5 and
-      # netcdf, which bring hdf4, libaec, libcurl, D126, D127)
-      ZIG_LIBS: zig-gdal zig-geos zig-proj zig-onetbb zig-abseil zig-openssl zig-gmp zig-mpfr zig-glpk zig-nlopt zig-udunits2 zig-expat zig-gsl zig-libpq zig-libpng zig-libjpeg zig-libtiff zig-libwebp zig-freetype zig-harfbuzz zig-fribidi zig-libxml2 zig-hdf5 zig-netcdf
+      # netcdf, which bring hdf4, libaec, libcurl, D126, D127; libcurl
+      # brings libssh2, nghttp2, libidn2, libpsl, slice3 D130; protolite,
+      # RProtoBuf: protobuf and its protoc, D132)
+      ZIG_LIBS: zig-gdal zig-geos zig-proj zig-onetbb zig-abseil zig-openssl zig-gmp zig-mpfr zig-glpk zig-nlopt zig-udunits2 zig-expat zig-gsl zig-libpq zig-libpng zig-libjpeg zig-libtiff zig-libwebp zig-freetype zig-harfbuzz zig-fribidi zig-libxml2 zig-hdf5 zig-netcdf zig-protobuf
     steps:
       - name: Defender exclusions
         shell: pwsh
@@ -444,8 +448,8 @@ jobs:
             echo "platforms = [\"$SUBDIR\"]"
             echo
             echo '[dependencies]'
-            # build 12: the first r-zig that searches zig-libs (CONTRACT 6)
-            for p in r-zig-slim r-zig-toolchain; do echo "$p = { version = \"4.6.2\", build = \"*_12\" }"; done
+            # build 13: zig-libs in R_TOOLS_SOFT and LOCAL_SOFT (CONTRACT 6)
+            for p in r-zig-slim r-zig-toolchain; do echo "$p = { version = \"4.6.2\", build = \"*_13\" }"; done
             for p in pkg-config $ZIG_LIBS $SYSDEPS; do echo "$p = \"*\""; done
           } > "$ws/pixi.toml"
           cat "$ws/pixi.toml"
@@ -459,10 +463,10 @@ jobs:
             jq -r --arg c "$chan" --argjson b "$built" '.[] | select(.name as $n | $b | index($n)) | select((.source // "") != $c) | "\(.name) \(.build) \(.source)"')
           if [ -n "$bad" ]; then echo "::error::zig-* built here but not taken from this run's channel: $bad"; exit 1; fi
           echo "MANIFEST=$ws/pixi.toml" >> "$GITHUB_ENV"
-          # r-zig build 12 finds zig-libs itself (R_ZIG_LIBS, PKG_CONFIG_PATH
-          # and PKG_CONFIG_LIBDIR, R_TOOLS_SOFT in its Rcmd_environ;
-          # CONTRACT 6). LOCAL_SOFT stays empty there; the install step
-          # sets it (slice2 PLAN.md S2-F30, D124)
+          # r-zig finds zig-libs itself (R_ZIG_LIBS, PKG_CONFIG_PATH and
+          # PKG_CONFIG_LIBDIR, R_TOOLS_SOFT and, since build 13, LOCAL_SOFT
+          # in its Rcmd_environ; CONTRACT 6). ZIG_LIBS_TREE: for protoc
+          # below.
           case "$SUBDIR" in win-64) zt=x86_64-windows-gnu ;; win-arm64) zt=aarch64-windows-gnu ;; esac
           echo "ZIG_LIBS_TREE=$ws/.pixi/envs/default/Library/zig-libs/$zt" >> "$GITHUB_ENV"
           echo "RSCRIPT=$(cygpath -m "$ws/.pixi/envs/default/Library/lib/R/bin/x64/Rscript.exe")" >> "$GITHUB_ENV"
@@ -486,12 +490,20 @@ jobs:
         env:
           R_INSTALL_LOGS: ${{ runner.temp }}/install-logs
         run: |
-          # CRAN jpeg looks for libjpeg only in $(LOCAL_SOFT)/lib, which
-          # r-zig build 12 leaves empty (S2-F30): zig-libs until r-zig decides
-          export LOCAL_SOFT="$ZIG_LIBS_TREE"
+          # protolite runs a bare `protoc`: zig-protobuf's, in zig-libs'
+          # bin/ (CONTRACT 2), on PATH until r-zig build 14 adds it to R
+          # CMD's PATH itself (slice3 D132)
+          PATH="$(cygpath -u "$ZIG_LIBS_TREE")/bin:$PATH"; export PATH
           # one package per word
           # shellcheck disable=SC2086
           pixi run --manifest-path "$MANIFEST" "$RSCRIPT" "$(cygpath -m "$GITHUB_WORKSPACE/tests/r/install.R")" $PACKAGES
+          # protolite falls back to r-windows' protobuf bundle when it finds
+          # no protobuf.pc or protoc; its Makevars.win says which it used
+          case " $PACKAGES " in
+            *" protolite "*)
+              grep -F 'using protobuf and libprotoc 29.5' "$(cygpath -u "$R_INSTALL_LOGS")/protolite.out" \
+                || { echo "::error::protolite did not build on zig-protobuf and its protoc"; exit 1; } ;;
+          esac
       - name: Smoke
         timeout-minutes: 10
         run: |

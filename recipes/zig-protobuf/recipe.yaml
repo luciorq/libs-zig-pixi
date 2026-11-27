@@ -1,0 +1,146 @@
+# zig-protobuf: Protocol Buffers (C++), static only, for Windows (win-64,
+# win-arm64), cross-built on linux with zig-toolchain (C++17, libc++) on
+# zig-abseil, with protoc.exe for the target (slice3 D132). Installed under
+# the private sub-prefix Library/zig-libs/<zig triple>/ (D2):
+# lib/libprotobuf.a, libprotobuf-lite.a, libprotoc.a, libupb.a,
+# libutf8_range.a, libutf8_validity.a, include/google/protobuf/,
+# include/upb/, lib/pkgconfig/protobuf.pc, protobuf-lite.pc,
+# utf8_range.pc, upb.pc (closed, relocatable; protobuf.pc requires the
+# absl_*.pc modules and utf8_range.pc), lib/cmake/protobuf/,
+# lib/cmake/utf8_range/, bin/protoc.exe (and upb's three protoc-gen-upb*
+# plugins, which protobuf's exported CMake targets name), licenses/protobuf/.
+context:
+  # Rtools45 build 6768 (D9), variants.yaml
+  version: ${{ protobuf_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-protobuf
+  version: ${{ version }}
+
+source:
+  - url: https://github.com/protocolbuffers/protobuf/releases/download/v${{ version }}/protobuf-${{ version }}.tar.gz
+    sha256: a191d2afdd75997ba59f62019425016703daed356a9d92f7425f4741439ae544
+    patches:
+      # clang on MinGW: no ELF section start/stop symbols (the patch says
+      # why; upstream's fix from v31.0)
+      - patches/0001-no-weak-descriptor-messages-on-windows.patch
+      # libutf8_validity.a without its own copy of utf8_range.c (the patch
+      # says why)
+      - patches/0002-utf8-validity-links-utf8-range.patch
+  # the package test (tests/pkgtest.zig, tests/smoke/protobuf.cpp and the
+  # schema with protoc 29.5's generated code), for tests.files below; the
+  # build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # exact: puts cmake and ninja in the hash (variants.yaml)
+    - cmake ==${{ cmake }}
+    - ninja ==${{ ninja }}
+  host:
+    # its run_exports pin the same abseil LTS (x.x) at run time
+    - zig-abseil
+  run_exports:
+    weak:
+      # protobuf's C++ ABI changes with every minor release (the
+      # generated code checks PROTOBUF_VERSION exactly): x.x
+      - ${{ pin_subpackage("zig-protobuf", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libprotobuf.a
+          - ${{ sub }}/lib/libprotobuf-lite.a
+          - ${{ sub }}/lib/libprotoc.a
+          - ${{ sub }}/lib/libupb.a
+          - ${{ sub }}/lib/libutf8_range.a
+          - ${{ sub }}/lib/libutf8_validity.a
+          - ${{ sub }}/include/google/protobuf/message.h
+          - ${{ sub }}/include/google/protobuf/message_lite.h
+          - ${{ sub }}/include/google/protobuf/compiler/importer.h
+          - ${{ sub }}/include/google/protobuf/descriptor.proto
+          - ${{ sub }}/include/utf8_range.h
+          - ${{ sub }}/lib/pkgconfig/protobuf.pc
+          - ${{ sub }}/lib/pkgconfig/protobuf-lite.pc
+          - ${{ sub }}/lib/pkgconfig/utf8_range.pc
+          - ${{ sub }}/lib/pkgconfig/upb.pc
+          - ${{ sub }}/lib/cmake/protobuf/protobuf-config.cmake
+          # the first executables a zig-* package ships (slice3 D132):
+          # protoc for the target, which R packages run at install time,
+          # and upb's plugins (protobuf-targets-release.cmake names them)
+          - ${{ sub }}/bin/protoc.exe
+          - ${{ sub }}/bin/protoc-gen-upb.exe
+          - ${{ sub }}/bin/protoc-gen-upbdefs.exe
+          - ${{ sub }}/bin/protoc-gen-upb_minitable.exe
+          - ${{ sub }}/licenses/protobuf/LICENSE
+          - ${{ sub }}/licenses/protobuf/utf8_range-LICENSE
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library; no versioned executable name (build.sh), nothing in
+        # Library/bin (r-zig puts <sub>/bin on R CMD's PATH)
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - ${{ sub }}/bin/*.exe-*
+          - Library/bin/**
+  # tests/pkgtest.zig (its header says what it checks): protobuf.pc pulls
+  # the absl_*.pc modules and utf8_range.pc through Requires (--require for
+  # -lprotobuf, -lutf8_validity, -lutf8_range, -labsl_base and abseil's
+  # Windows system libraries); no MSVC flag and no PROTOBUF_USE_DLLS in
+  # the flags (--forbid); the relocated .pc files resolve to existing
+  # paths, no absolute prefix in any, no build path in any archive; the
+  # archives use libc++ (--libcxx), define no C symbol twice and carry no
+  # dllexport directives; tests/smoke/protobuf.cpp (with protoc 29.5's
+  # code for tests/smoke/protobuf_smoke.proto) links, and runs on Windows
+  # of the same arch: a round trip, the lite interface, descriptor,
+  # reflection, TextFormat, and the package's protoc.exe printing
+  # "libprotoc 29.5" and regenerating the code byte for byte. The second
+  # line checks protobuf-lite.pc's closure the same way, without a smoke
+  # source. One plain command for bash (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --libcxx --unique-c-symbols --no-dllexport --require -lprotobuf --require -lutf8_validity --require -lutf8_range --require -labsl_base --require -ladvapi32 --require -ldbghelp --require -lbcrypt --forbid -DPROTOBUF_USE_DLLS --forbid /W3 --forbid /bigobj ${{ zt }} protobuf zig-libs-tests/smoke/protobuf.cpp
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --libcxx --unique-c-symbols --no-dllexport --require -lprotobuf-lite --require -lutf8_range --forbid -DPROTOBUF_USE_DLLS ${{ zt }} protobuf-lite
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/protobuf.cpp
+        - zig-libs-tests/smoke/protobuf_smoke.proto
+        - zig-libs-tests/smoke/protobuf_smoke.pb.h
+        - zig-libs-tests/smoke/protobuf_smoke.pb.cc
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://protobuf.dev/
+  # utf8_range (libutf8_range.a, libutf8_validity.a) is MIT
+  license: BSD-3-Clause AND MIT
+  license_file:
+    - LICENSE
+    - third_party/utf8_range/LICENSE
+  summary: Protocol Buffers (C++ libraries and protoc), static libraries for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/protocolbuffers/protobuf

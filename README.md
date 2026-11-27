@@ -24,6 +24,7 @@ Every package installs into a private sub-prefix that no conda-forge package tou
   include/
   lib/lib<n>.a
   lib/pkgconfig/<n>.pc      # closed and relocatable
+  bin/protoc.exe            # zig-protobuf only
   lib/cmake/
   share/{gdal,proj}/
   licenses/<pkg>/

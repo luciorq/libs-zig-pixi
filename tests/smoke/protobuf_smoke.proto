@@ -1,0 +1,27 @@
+// zig-protobuf smoke test schema (tests/smoke/protobuf.cpp). The
+// generated protobuf_smoke.pb.h and protobuf_smoke.pb.cc next to it are
+// protoc 29.5's output for this file (`protoc --cpp_out=. protobuf_smoke.proto`
+// in this directory); on Windows the smoke regenerates them with the
+// package's protoc.exe and compares them byte for byte.
+syntax = "proto3";
+
+package zigsmoke;
+
+message Point {
+  sint32 x = 1;
+  sint32 y = 2;
+}
+
+message Shape {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    POLYGON = 1;
+    LINE = 2;
+  }
+  string name = 1;
+  Kind kind = 2;
+  repeated Point points = 3;
+  map<string, double> tags = 4;
+  bytes blob = 5;
+  optional int64 id = 6;
+}
