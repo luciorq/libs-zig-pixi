@@ -1,9 +1,12 @@
 /* zig-libcurl smoke test, no network: curl_version_info reports the
-   version, Schannel as the TLS backend and the libz, zstd, brotli, IDN
-   (WinIDN) and SSPI features, with ldap among the protocols; a string
+   version, Schannel as the TLS backend and the libz, zstd, brotli, SSPI,
+   HTTP/2 (nghttp2), IDN (libidn2) and PSL (libpsl) features, libssh2
+   with sftp and scp, and ldap among the protocols (slice3 D130); an
+   international host name converted to punycode and back; a string
    escaped and unescaped and a URL built, read back and rewritten through
    the CURLU API; a temp file written and downloaded through a file:// URL
    into a memory buffer, equal to what was written; prints OK. */
+#include <locale.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,8 +44,15 @@ static void check_version(void) {
     expect((vi->features & CURL_VERSION_LIBZ) != 0 && vi->libz_version, "feature libz");
     expect((vi->features & CURL_VERSION_ZSTD) != 0 && vi->zstd_version, "feature zstd");
     expect((vi->features & CURL_VERSION_BROTLI) != 0 && vi->brotli_version, "feature brotli");
-    expect((vi->features & CURL_VERSION_IDN) != 0, "feature IDN (WinIDN)");
+    printf("libssh2 %s, nghttp2 %s, libidn2 %s\n", vi->libssh_version ? vi->libssh_version : "(none)",
+           vi->nghttp2_version ? vi->nghttp2_version : "(none)", vi->libidn ? vi->libidn : "(none)");
+    expect((vi->features & CURL_VERSION_IDN) != 0 && vi->libidn, "feature IDN (libidn2, not WinIDN)");
+    expect((vi->features & CURL_VERSION_PSL) != 0, "feature PSL (libpsl)");
+    expect((vi->features & CURL_VERSION_HTTP2) != 0 && vi->nghttp2_version, "feature HTTP2 (nghttp2)");
+    expect(vi->libssh_version && strncmp(vi->libssh_version, "libssh2/", 8) == 0, "libssh2");
     expect((vi->features & CURL_VERSION_SSPI) != 0, "feature SSPI");
+    expect(has_protocol(vi, "sftp"), "protocol sftp (libssh2)");
+    expect(has_protocol(vi, "scp"), "protocol scp (libssh2)");
     expect(has_protocol(vi, "https"), "protocol https");
     expect(has_protocol(vi, "file"), "protocol file");
     expect(has_protocol(vi, "ldap"), "protocol ldap (wldap32)");
@@ -83,6 +93,27 @@ static void check_url_api(CURL *h) {
     curl_free(full);
     curl_url_cleanup(u);
     curl_free(esc);
+
+    /* IDN through libidn2: a UTF-8 host to punycode and back. curl calls
+       idn2_lookup_ul (no ENABLE_UNICODE), which reads the host in the
+       locale's charset: in the "C" locale that is the ANSI code page
+       (CP1252), so the test runs in a UTF-8 locale, as R does (its
+       Windows builds use UTF-8 since 4.2) */
+    setlocale(LC_CTYPE, ".UTF-8");
+    CURLU *i = curl_url();
+    char *puny = NULL, *idn = NULL;
+    expect(curl_url_set(i, CURLUPART_URL, "https://b\xc3\xbc" "cher.example/", 0) == CURLUE_OK, "curl_url_set IDN URL");
+    expect(curl_url_get(i, CURLUPART_HOST, &puny, CURLU_PUNYCODE) == CURLUE_OK &&
+               strcmp(puny, "xn--bcher-kva.example") == 0,
+           "IDN host to punycode");
+    curl_url_set(i, CURLUPART_HOST, "xn--bcher-kva.example", 0);
+    expect(curl_url_get(i, CURLUPART_HOST, &idn, CURLU_PUNY2IDN) == CURLUE_OK &&
+               strcmp(idn, "b\xc3\xbc" "cher.example") == 0,
+           "punycode host to IDN");
+    printf("idn: %s <-> %s\n", puny ? puny : "(none)", idn ? idn : "(none)");
+    curl_free(puny);
+    curl_free(idn);
+    curl_url_cleanup(i);
 }
 
 struct buf {

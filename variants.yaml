@@ -142,3 +142,25 @@ libaec_version:
   - "1.0.6"
 hdf4_version:
   - "4.2.15"
+# libcurl with Rtools45's features (slice3 D130): SFTP/SCP (libssh2, on
+# zig-openssl, not Rtools45's libgcrypt), HTTP/2 (nghttp2), IDN through
+# libidn2 (on libunistring and zig-libiconv) and the public suffix list
+# (libpsl). Rtools45 build 6768 versions, both arches.
+nghttp2_version:
+  - "1.68.0"
+libssh2_version:
+  - "1.11.1"
+libunistring_version:
+  - "1.4.1"
+libidn2_version:
+  - "2.3.8"
+libpsl_version:
+  - "0.21.5"
+# MXE's libgnurx (regex.h, libregex.a, libgnurx.a), as Rtools45's base
+# tarball (slice3 D131, r-zig-pixi build 14 request)
+libgnurx_version:
+  - "2.6.1"
+# protobuf 29.x: Rtools45's version, the last before v30's C++ API break
+# (absl::string_view returns); on zig-abseil 20250127.0 (slice3 D132)
+protobuf_version:
+  - "29.5"

@@ -1,0 +1,119 @@
+# zig-libpsl: libpsl (Public Suffix List), static only, for Windows
+# (win-64, win-arm64), cross-built on linux with zig-toolchain through
+# libpsl's own meson build (D1) and zig-toolchain's meson cross file
+# (slice2 D119), with the release's built-in list (DAFSA) and run-time
+# IDNA through zig-libidn2, as Rtools45 (slice3 D130); for zig-libcurl's
+# cookie and HSTS domain checks. The library only: no psl tool, no
+# psl-make-dafsa script, no man pages. Installed under the private
+# sub-prefix Library/zig-libs/<zig triple>/ (D2): lib/libpsl.a,
+# include/libpsl.h, lib/pkgconfig/libpsl.pc (closed, relocatable,
+# -DPSL_STATIC in Cflags, Requires libidn2 libunistring iconv),
+# licenses/libpsl/.
+context:
+  version: ${{ libpsl_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-libpsl
+  version: ${{ version }}
+
+source:
+  # sha256 as computed on download; the release's GPG signature
+  # (libpsl-0.21.5.tar.gz.sig) verifies with Tim Rühsen's key
+  # 1CB27DBC98614B2D5841646D08302DB6A2670428
+  - url: https://github.com/rockdaboot/libpsl/releases/download/${{ version }}/libpsl-${{ version }}.tar.gz
+    sha256: 1dcc9ceae8b128f3c0b3f654decd0e1e891afc6ff81098f227ef260449dae208
+  # the package test (tests/pkgtest.zig, tests/smoke/libpsl.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # meson and ninja, exact: in the hash (variants.yaml); python runs
+    # src/psl-make-dafsa, which turns list/public_suffix_list.dat into the
+    # built-in DAFSA (meson's python, as zig-harfbuzz's generator scripts).
+    # pkgconf finds zig-libidn2 for meson (the cross file's pkg-config;
+    # PKG_CONFIG_LIBDIR is the host's zig-libs).
+    - meson ==${{ meson }}
+    - ninja ==${{ ninja }}
+    - python
+    - pkgconf
+  host:
+    - zig-libidn2
+    - zig-libunistring
+    - zig-libiconv
+  run_exports:
+    weak:
+      # libpsl.so.5 since 0.16
+      - ${{ pin_subpackage("zig-libpsl", upper_bound="x.x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libpsl.a
+          - ${{ sub }}/include/libpsl.h
+          - ${{ sub }}/lib/pkgconfig/libpsl.pc
+          - ${{ sub }}/licenses/libpsl/LICENSE
+          - ${{ sub }}/licenses/libpsl/LICENSE.chromium
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library; no psl tool, no psl-make-dafsa, no man pages
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.exe"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/share/**
+  # tests/pkgtest.zig (its header says what it checks): libpsl.pc pulls
+  # libidn2.pc, libunistring.pc and iconv.pc through Requires (--require
+  # -l<n> for each) and carries -DPSL_STATIC; the relocated .pc resolves to
+  # existing paths, no absolute prefix in it, no build path in the
+  # archives, no C symbol in two archives of the closure, no dllexport
+  # directive, and tests/smoke/libpsl.c links (and runs, on Windows of the
+  # same arch: public suffixes and registrable domains from the built-in
+  # list, an IDN suffix through libidn2). One plain command for bash
+  # (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -DPSL_STATIC --require -lpsl --require -lidn2 --require -lunistring --require -liconv --require -lws2_32 ${{ zt }} libpsl zig-libs-tests/smoke/libpsl.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/libpsl.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://rockdaboot.github.io/libpsl/
+  # LICENSE (MIT) for libpsl; src/LICENSE.chromium (BSD-3-Clause) for
+  # lookup_string_in_fixed_set.c and psl-make-dafsa; the built-in list
+  # (list/public_suffix_list.dat, compiled into libpsl.a) is MPL-2.0
+  license: MIT AND BSD-3-Clause AND MPL-2.0
+  license_file:
+    - LICENSE
+    - src/LICENSE.chromium
+  summary: libpsl (Public Suffix List, built-in data, IDNA through libidn2), static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/rockdaboot/libpsl

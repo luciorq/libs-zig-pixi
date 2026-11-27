@@ -1,0 +1,99 @@
+# zig-nghttp2: nghttp2's HTTP/2 C library (libnghttp2), static only, for
+# Windows (win-64, win-arm64), cross-built on linux with zig-toolchain
+# through nghttp2's own CMake build, the library only (ENABLE_LIB_ONLY: no
+# nghttp/nghttpd/nghttpx/h2load, no HPACK tools, examples, tests or docs),
+# for libcurl's HTTP/2 (slice3 D130). Installed under the private
+# sub-prefix Library/zig-libs/<zig triple>/ (D2): lib/libnghttp2.a,
+# include/nghttp2/, lib/pkgconfig/libnghttp2.pc (closed, relocatable,
+# -DNGHTTP2_STATICLIB in Cflags), licenses/nghttp2/.
+context:
+  version: ${{ nghttp2_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-nghttp2
+  version: ${{ version }}
+
+source:
+  # sha256 as the GitHub release asset's digest
+  - url: https://github.com/nghttp2/nghttp2/releases/download/v${{ version }}/nghttp2-${{ version }}.tar.xz
+    sha256: 5511d3128850e01b5b26ec92bf39df15381c767a63441438b25ad6235def902c
+  # the package test (tests/pkgtest.zig, tests/smoke/nghttp2.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # exact: puts cmake and ninja in the hash (variants.yaml)
+    - cmake ==${{ cmake }}
+    - ninja ==${{ ninja }}
+  run_exports:
+    weak:
+      # libnghttp2 keeps its ABI within 1.x (soname libnghttp2.so.14)
+      - ${{ pin_subpackage("zig-nghttp2", upper_bound="x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libnghttp2.a
+          - ${{ sub }}/include/nghttp2/nghttp2.h
+          - ${{ sub }}/include/nghttp2/nghttp2ver.h
+          - ${{ sub }}/lib/pkgconfig/libnghttp2.pc
+          - ${{ sub }}/licenses/nghttp2/COPYING
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library; no programs, no docs, no CMake config
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.exe"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/share/**
+          - ${{ sub }}/lib/cmake/**
+  # tests/pkgtest.zig (its header says what it checks): the relocated .pc
+  # resolves to existing paths, has -DNGHTTP2_STATICLIB (nghttp2.h
+  # dllimports every function without it), no absolute prefix in it, no
+  # build path in libnghttp2.a, no C symbol in two archives, no dllexport
+  # directive, and tests/smoke/nghttp2.c links (and runs, on Windows of the
+  # same arch: the version, an HPACK deflate/inflate round trip, a client
+  # session's connection preface and SETTINGS frame). One plain command for
+  # bash (linux) and cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -DNGHTTP2_STATICLIB --require -lnghttp2 ${{ zt }} libnghttp2 zig-libs-tests/smoke/nghttp2.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/nghttp2.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://nghttp2.org/
+  license: MIT
+  license_file: COPYING
+  summary: nghttp2 HTTP/2 C library, static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/nghttp2/nghttp2

@@ -1,0 +1,105 @@
+# zig-libssh2: libssh2 (SSH2 client library: SFTP and SCP for libcurl),
+# static only, for Windows (win-64, win-arm64), cross-built on linux with
+# zig-toolchain through libssh2's own CMake build, on zig-openssl's
+# libcrypto (slice3 D130) and zig-zlib from the host env. No examples,
+# tests or man pages. Installed under the private sub-prefix
+# Library/zig-libs/<zig triple>/ (D2): lib/libssh2.a,
+# include/{libssh2,libssh2_publickey,libssh2_sftp}.h,
+# lib/pkgconfig/libssh2.pc (closed, relocatable, Requires: libcrypto
+# zlib), licenses/libssh2/.
+context:
+  version: ${{ libssh2_version }}
+  zt: ${{ "aarch64-windows-gnu" if target_platform == "win-arm64" else "x86_64-windows-gnu" }}
+  sub: Library/zig-libs/${{ zt }}
+
+package:
+  name: zig-libssh2
+  version: ${{ version }}
+
+source:
+  # sha256 the same for libssh2.org's tarball and the GitHub release asset
+  - url: https://libssh2.org/download/libssh2-${{ version }}.tar.xz
+    sha256: 9954cb54c4f548198a7cbebad248bdc87dd64bd26185708a294b2b50771e3769
+  # the package test (tests/pkgtest.zig, tests/smoke/libssh2.c), for
+  # tests.files below; the build does not use it
+  - path: ../../tests
+    target_directory: zig-libs-tests
+
+build:
+  number: 0
+  string: zig_${{ hash }}_${{ build_number }}
+  script:
+    file: build.sh
+    env:
+      # both zigs (D11): the upstream-zig leg sets ZIG_BIN to PyPI
+      # ziglang's zig; empty means the build env's conda-forge zig
+      ZIG_BIN: ${{ env.get("ZIG_BIN", default="") }}
+      ZIG_TOOLCHAIN_TRACE: ${{ env.get("ZIG_TOOLCHAIN_TRACE", default="") }}
+      # zig's global cache shared across recipes (CI; slice2 D115); empty
+      # means one under SRC_DIR (zig-toolchain activation)
+      LIBS_ZIG_CACHE: ${{ env.get("LIBS_ZIG_CACHE", default="") }}
+      ZIG_VERSION: ${{ zig }}
+
+requirements:
+  build:
+    # exact: puts zig_toolchain in the hash (variants.yaml)
+    - zig-toolchain ==${{ zig_toolchain }}
+    - zig ==${{ zig }}
+    # exact: puts cmake and ninja in the hash (variants.yaml)
+    - cmake ==${{ cmake }}
+    - ninja ==${{ ninja }}
+  host:
+    - zig-openssl
+    - zig-zlib
+  run_exports:
+    weak:
+      # libssh2 keeps its ABI within 1.x (soname libssh2.so.1)
+      - ${{ pin_subpackage("zig-libssh2", upper_bound="x") }}
+
+tests:
+  - package_contents:
+      files:
+        exists:
+          - ${{ sub }}/lib/libssh2.a
+          - ${{ sub }}/include/libssh2.h
+          - ${{ sub }}/include/libssh2_publickey.h
+          - ${{ sub }}/include/libssh2_sftp.h
+          - ${{ sub }}/lib/pkgconfig/libssh2.pc
+          - ${{ sub }}/licenses/libssh2/COPYING
+        # static only (D3): no DLL, no import library, no MSVC-named
+        # library; no examples, no docs or man pages, no CMake config
+        not_exists:
+          - "**/*.dll"
+          - "**/*.dll.a"
+          - "**/*.lib"
+          - "**/*.exe"
+          - ${{ sub }}/bin/**
+          - ${{ sub }}/share/**
+          - ${{ sub }}/lib/cmake/**
+  # tests/pkgtest.zig (its header says what it checks): libssh2.pc pulls
+  # libcrypto.pc and zlib.pc through Requires (--require -l<n> for each);
+  # the relocated .pc resolves to existing paths, no absolute prefix in it,
+  # no build path in the archives, no C symbol defined in two archives of
+  # the closure, no dllexport directive, and tests/smoke/libssh2.c links
+  # (and runs, on Windows of the same arch: the version, the OpenSSL
+  # backend, a session's method lists with zlib compression; no
+  # network). One plain command for bash (linux) and
+  # cmd.exe (Windows).
+  - script:
+      - zig run --cache-dir .zig-local-cache zig-libs-tests/pkgtest.zig -- --unique-c-symbols --no-dllexport --require -lssh2 --require -lcrypto --require -lz --require -lws2_32 ${{ zt }} libssh2 zig-libs-tests/smoke/libssh2.c
+    files:
+      source:
+        - zig-libs-tests/pkgtest.zig
+        - zig-libs-tests/smoke/libssh2.c
+    requirements:
+      build:
+        - zig ==${{ zig }}
+        - pkgconf
+        - llvm-tools
+
+about:
+  homepage: https://libssh2.org/
+  license: BSD-3-Clause
+  license_file: COPYING
+  summary: libssh2 (SSH2 client library, OpenSSL backend), static library for Windows built with zig (private zig-libs sub-prefix)
+  repository: https://github.com/libssh2/libssh2
