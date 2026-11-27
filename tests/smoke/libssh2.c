@@ -43,14 +43,17 @@ int main(void) {
         printf("FAIL: libssh2_session_init\n");
         return 1;
     }
-    int ok = has_alg(s, LIBSSH2_METHOD_COMP_CS, "zlib")
-        & has_alg(s, LIBSSH2_METHOD_HOSTKEY, "ssh-ed25519")
-        & has_alg(s, LIBSSH2_METHOD_KEX, "curve25519-sha256")
-        & has_alg(s, LIBSSH2_METHOD_CRYPT_CS, "aes256-gcm@openssh.com");
+    /* the COMP lists hold zlib only once the session asks for
+       compression (src/comp.c _libssh2_comp_methods): set the flag first */
+    int ok = 1;
     if (libssh2_session_flag(s, LIBSSH2_FLAG_COMPRESS, 1) != 0) {
         printf("FAIL: libssh2_session_flag(COMPRESS)\n");
         ok = 0;
     }
+    ok &= has_alg(s, LIBSSH2_METHOD_COMP_CS, "zlib")
+        & has_alg(s, LIBSSH2_METHOD_HOSTKEY, "ssh-ed25519")
+        & has_alg(s, LIBSSH2_METHOD_KEX, "curve25519-sha256")
+        & has_alg(s, LIBSSH2_METHOD_CRYPT_CS, "aes256-gcm@openssh.com");
     libssh2_session_free(s);
     libssh2_exit();
     if (!ok) return 1;

@@ -186,3 +186,29 @@ r-consumer checks protolite's install log for `using protobuf and
 libprotoc 29.5`, so a fallback to r-windows' bundle cannot pass. (8) doc
 fixes (libssh2 test comment; CONTRACT: protoc-gen-upb plugins).
 
+
+**S3-F8 V. First Windows run: PR #11 CI run 45941523863 (2026-11-27).**
+Every check except one passed on both arches:
+- Alignment: 9/9 ok.
+- r-consumer: 24/24 INSTALL ok, and the protolite log grep matched.
+- SMOKE: 68/68 PASS on win-64 and 66/66 on win-arm64 (+2 each:
+  protolite round trip, and RProtoBuf libprotobuf 29.5 with a message
+  round trip).
+- test: 8 packages per arch, 7 passed. zig-libcurl's IDN check
+  (punycode both ways) passed. zig-protobuf's checks passed: `protoc
+  --version`, the byte-identical regeneration and the link test.
+
+The one failure was the zig-libssh2 smoke on both arches: "method 6:
+1 algorithms, zlib MISSING". The cause is in the test, not the package.
+libssh2 lists zlib among the COMP methods only once the session has
+LIBSSH2_FLAG_COMPRESS set (src/comp.c `_libssh2_comp_methods`), and the
+smoke set the flag after it checked the list. The smoke now sets the
+flag first. The local tests did not catch this because no .exe runs on
+linux-64.
+
+protolite's "from Rtools" in its install log is fixed text
+(Makevars.win:9). It means only that `pkg-config --libs protobuf` and
+`protoc` both answered, here with zig-protobuf's. Rtools45 also has
+protobuf 29.5, so the grep alone cannot tell the two apart. What does
+tell them apart: Rtools' gcc-built libprotobuf.a cannot link with zig's
+libc++, and the RProtoBuf smoke checks libprotobuf 29.5.
