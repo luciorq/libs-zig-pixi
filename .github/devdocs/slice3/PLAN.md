@@ -212,3 +212,51 @@ protolite's "from Rtools" in its install log is fixed text
 protobuf 29.5, so the grep alone cannot tell the two apart. What does
 tell them apart: Rtools' gcc-built libprotobuf.a cannot link with zig's
 libc++, and the RProtoBuf smoke checks libprotobuf 29.5.
+
+**S3-F9 V. The slice 3 publish (2026-11-27).** PR #11 merged (main
+76969af). Its last PR run, 46006528597 on cc98438, passed every job:
+- test: 8 packages per subdir, 0 failed;
+- r-consumer: 24/24 installs;
+- smoke: 68/68 on win-64 and 66/66 on win-arm64.
+
+There were two runs on main:
+- Push run 46079471342 (the merge) skipped publish, but its other jobs
+  passed with the same counts. GitHub takes the `vars` context when it
+  creates a run, at 22:55:03Z here. `CONDA_PUBLISH` was set 34 s
+  later, so the publish job's `vars.CONDA_PUBLISH == 'true'` was false.
+- Dispatch run 46079530353 was created at 22:55:38Z and waited behind
+  the push run (same concurrency group, no cancel on push or dispatch).
+  Its plan selected the same 8 recipes, and its tests, r-consumer
+  (24/24, 68/66) and alignment passed. Publish found zig-toolchain
+  "published, same recipe" and uploaded and verified the 16 new files.
+  Each one answers HTTP 200 on repo.prefix.dev/universe.
+  `CONDA_PUBLISH` was deleted after the run.
+
+The rule for later releases: set the variable, then dispatch (the
+documented order). A push that is already running does not publish.
+
+Build strings (win-64 / win-arm64):
+
+| Package | win-64 | win-arm64 |
+|---|---|---|
+| zig-nghttp2 1.68.0 | `zig_bab5e17_0` | `zig_4fbe121_0` |
+| zig-libssh2 1.11.1 | `zig_4a1dd11_0` | `zig_b80fed4_0` |
+| zig-libunistring 1.4.1 | `zig_3ef6edc_0` | `zig_cb1864f_0` |
+| zig-libidn2 2.3.8 | `zig_45c0992_0` | `zig_6cc82e2_0` |
+| zig-libpsl 0.21.5 | `zig_0438a01_0` | `zig_bee7775_0` |
+| zig-libcurl 8.18.0 | `zig_f8676a9_2` | `zig_078318b_2` |
+| zig-libgnurx 2.6.1 | `zig_599dde6_0` | `zig_b471b37_0` |
+| zig-protobuf 29.5 | `zig_463c35a_0` | `zig_5c7856f_0` |
+
+The handover went to the r-zig-pixi session the same day. Its build 14
+(lock 0b512c3435b4) uses slice 3:
+- The Windows stress env lists zig-libgnurx, zig-protobuf and
+  zig-libcurl build 2 or later.
+- win-64 drops conda-forge's MSVC libprotobuf. protoc comes from
+  zig-libs/<triple>/bin, which build 14's Rcmd_environ puts on R CMD's
+  PATH.
+- rzig's drop list for Rtools' hard-coded curl link list now has only
+  `-lgcrypt -lgpg-error`.
+
+Its stress run (Rhtslib, Rsamtools, protolite, RProtoBuf) and the
+CONTRACT 6 note (R_ZIG_FALLBACK_SOFT removed) follow from that session.
