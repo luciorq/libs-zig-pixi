@@ -981,3 +981,18 @@ universe; r-consumer checks that every zig-* package built in the run
 comes from the run's channel (the rest from universe); cross, test,
 r-consumer and alignment are skipped when nothing is selected, and
 publish then runs on skipped jobs too (only zig-toolchain can be new).
+
+**S2-F39 V. The zig-libcurl build 1 publish (D128, D129; 2026-11-26).**
+PR #9 (D128) and PR #10 (D129) merged (main eee907d). This was the first
+publish with recipe selection.
+`gh workflow run build.yml --ref main` started run 45834790796. Its plan
+marked 68 files "same recipe" and zig-libcurl "new" on both subdirs, and
+built zig-libcurl only.
+- test: 1 package per subdir, 0 failed.
+- r-consumer: 22/22 installs; smoke 66/66 (win-64) and 64/64
+  (win-arm64).
+- publish: zig-toolchain "published, same recipe". It uploaded and
+  verified win-64 `zig_38b206d_1` and win-arm64 `zig_12f6e5a_1`.
+
+The r-zig-pixi session was notified the same day. Its stress result on
+build 1 (Rhtslib and Rsamtools ok on windows-11-arm) is slice3 S3-F1.
